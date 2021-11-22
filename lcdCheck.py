@@ -8,21 +8,14 @@ Project kickoff date: Nov 17,2021
 coding start date: Nov 19,2021
 """
 
-import cv2 as cv
-import numpy as np
-from enum import Enum
 from managers import WindowManager,CaptureManager,CommunicationManager
 import logging
+import argparse
 import time
-from threading import Thread,currentThread
-
-class Message(Enum):
-    ACKNOWLEDGE = 0
-    NACK = 1
 
 
 class LcdTestSolution(object):
-    def __init__(self,logger,windowName:str,captureDeviceId:int,predefinedPatterns:list,portId:int):
+    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -33,11 +26,12 @@ class LcdTestSolution(object):
 
         self.logger = logger
         self._windowManager = WindowManager(windowName, self.onKeyPress)
-        self._captureManager = CaptureManager(captureDeviceId)
+        self._captureManager = CaptureManager(logger, captureDeviceId,self._windowManager,False)
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
         try:
-            self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB0', self._expireSeconds)
+            self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB'+str(portId),
+                                                              self._expireSeconds)
         except ConnectionError:
             self.logger.error('Abort!! Please make sure serial port is ready then retry')
             exit(-1)
@@ -52,12 +46,7 @@ class LcdTestSolution(object):
 
 
 
-    def run(self):
-        # # start communication thread
-        # self._comThread = Thread(target = communicationFunc, name="SerialCom Thread", daemon=True,
-        #                          args=(self._communicationManager, self.logger))
-        # self._comThread.start()
-
+    def run(self,mode):
         for self._current in self._predefinedPatterns:
             response = b''
             retry = 0
@@ -66,14 +55,32 @@ class LcdTestSolution(object):
                 command = self._communicationManager.send(self._current)
                 response = self._communicationManager.getResponse()
                 if response == command:
+                    self.logger.info('Press lcd switch key in 3 seconds to set a new image')
+                    time.sleep(3)
+
                     self._compareComplete = False
-                    while not self._compareComplete:
+                    while self._windowManager.isWindowCreated and not self._compareComplete:
                         self._captureManager.enterFrame()
-                        self.__capturedPicture = self._captureManager.frame
-                        self.__testResults.append(self.__compareManager.compare(
-                            self.__capturedPicture, self._current))
+                        if mode == 0:
+                            # run in calibration mode, capture and save the next frame img to file
+                            # in current directory by the name of self._current
+                            self.__testResults.append(self._captureManager.
+                                                      save(str(self._current)+'.png'))
+                            # self._compareComplete = True
+                        else:
+                            # compare mode, load standard image file from disk and compare
+                            # it with current image
+                            self.__capturedPicture = self._captureManager.frame
+                            if self.__capturedPicture is not None:
+                                ret = self._captureManager.compare(self.__capturedPicture, self._current)
+                                self.__testResults.append(ret)
+                                # self._compareComplete = True
+                            else:
+                                self.logger.debug('in mode 1, retrieving the capture device returns empty frame')
                         self._captureManager.exitFrame()
-                        self._compareComplete = True
+                        self._windowManager.processEvents()
+
+
                 elif response == b'':
                     self.logger.debug('no response after few seconds timeout')
                     retry += 1
@@ -90,26 +97,48 @@ class LcdTestSolution(object):
                 continue
 
 
-    def reportTestResult(self):
+    def reportTestResult(self, mode):
         self._communicationManager.close()
-        self.logger.info('test result is: {}'.format(self.__testResults))
+        if mode == 0:
+            self.logger.info('calibration completes:')
+        else:
+            self.logger.info('test completes:')
+        self.logger.info('result is: {}'.format(self.__testResults))
 
 
 
-    def onKeyPress(self):
+    def onKeyPress(self,keyCode):
+        if keyCode == ord('q') or keyCode == 27:
+            self._windowManager.destroyWindow()
+        elif keyCode == 32:  # space key
+            self.logger.info('save screenshoot to snapshot.png')
+            self._captureManager.save('snapshot.png')
+        elif keyCode == ord('n') or keyCode == ord('N'):
+            self._compareComplete = True
+        else:
+            self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
+
         pass
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="lcd manufacturing tester")
+    parser.add_argument("--mode", dest='mode',help='calibration or test [0,1]',default=0, type=int)
+
+    args = parser.parse_args()
+
     logger = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
     logHandler = logging.StreamHandler()
     logHandler.setFormatter(formatter)
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logHandler)
-    solution = LcdTestSolution(logger, "LCD test window",0,[1,2,3],1)
-    solution.run()
-    solution.reportTestResult()
+
+    logger.info(args)
+
+    solution = LcdTestSolution(logger, "LCD test window", 0, [1, 2, 3], 0)
+    solution.run(args.mode)
+    solution.reportTestResult(args.mode)
 
 
 
