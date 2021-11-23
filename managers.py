@@ -1,6 +1,7 @@
 import serial
 import cv2 as cv
 import numpy as np
+from matplotlib import pyplot as plt
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
@@ -14,11 +15,12 @@ class WindowManager:
         return self._isWindowCreated
 
     def createWindow(self):
-        cv.namedWindow(self._windowName)
+        cv.namedWindow(self._windowName, cv.WINDOW_NORMAL)
         self._isWindowCreated = True
 
-    def show(self,frame):
-        cv.imshow(self._windowName,frame)
+    def show(self, frame, x, y):
+        cv.moveWindow(self._windowName, x, y)
+        cv.imshow(self._windowName, frame)
 
     def destroyWindow(self):
         cv.destroyWindow(self._windowName)
@@ -33,14 +35,16 @@ class WindowManager:
 
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
-                 shouldMirrorPreview=False):
+                 snapWindowManager = None, shouldMirrorPreview=False):
         self.logger = logger
         self._capture = cv.VideoCapture(deviceId)
         self.previewWindowManager = previewWindowManger
         self.shouldMirrorPreview=shouldMirrorPreview
+        self._snapWindowManager = snapWindowManager
         self._frame = None
         self._channel = 0
         self._imageFileName = None
+        self._targetFileName = None     # use current frame to  compare with which image file?
         self._enteredFrame = False
 
     @property
@@ -63,6 +67,10 @@ class CaptureManager:
     def isWritingImage(self):
         return self._imageFileName is not None
 
+    @property
+    def isComparingTarget(self):
+        return self._targetFileName is not None
+
     def enterFrame(self):
         """
         capture the next frame, if any
@@ -82,23 +90,31 @@ class CaptureManager:
         # the getter may retrieve and cache the frame
         if self.frame is None:
             self._enteredFrame = False
-            self.logger.debug('in exitFrame: self._frame is None, do not process empty frame')
-            self._frame = None
+            self.logger.warning('in exitFrame: self._frame is None, retrieve an empty frame from camera')
             return
 
+        # self.logger.debug('in exitFrame(): get valid frame, display it ')
         # draw to the windowPreview , if any
         if self.previewWindowManager is not None:
             if self.shouldMirrorPreview:
                 mirroredFrame = np.fliplr(self._frame).copy()
-                self.previewWindowManager.show(mirroredFrame)
+                self.previewWindowManager.show(mirroredFrame, 10, 10)
             else:
-                self.previewWindowManager.show(self._frame)
+                self.previewWindowManager.show(self._frame, 10, 10)
 
         # write to image file, if any
         if self.isWritingImage:
+            self.logger.debug('in exitFrame(),write frame to file {}'.format(self._imageFileName))
             cv.imwrite(self._imageFileName, self._frame)
+            self._snapWindowManager.show(self._frame, self._frame.shape[1]+10, 10)
             self._imageFileName = None
 
+
+        # compare it with target image , if needed
+        if self.isComparingTarget:
+            self._compare()
+
+            self._targetFileName = None
         # release the frame
         self._frame = None
         self._enteredFrame = False
@@ -111,37 +127,53 @@ class CaptureManager:
         """
         self._imageFileName = filename
         return '0'
-        # try:
-        #     cv.imwrite(str(filename),captured_frame)
-        # except Exception as e:
-        #     self.logger.error('failed to save frame to %s: %s ' %(filename,e))
-        #     return '1'
-        # return '0'
 
-    def compare(self,captured_frame,filename):
-        self.logger.debug('in compare')
-        standardImg = cv.imread(str(filename)+'.png')
+    def setCompareFile(self,filename):
+        """
+        set targetFileName to be loaded and compare with current frame
+        :param filename:
+        :return:
+        """
+        self._targetFileName = str(filename) + '.png'
 
-        #convert to hsv
-        standardHsv = cv.cvtColor(standardImg, cv.COLOR_BGR2HSV)
-        testHsv = cv.cvtColor(captured_frame, cv.COLOR_BGR2HSV)
+    def _compare(self):
+        """
+        compare current frame with predefined targetFileName and return metric of likelyhood
+        between 0 and 1, the larger , both pictures are more likely to be the same
+        :return:
+        """
+        self.logger.debug('in _compare(), compare frame with file {}'.format(self._targetFileName))
+        targetImg = cv.imread(self._targetFileName)
+        targetImgHsv = cv.cvtColor(targetImg, cv.COLOR_BGR2GRAY)
+        frameHsv = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
 
-        #calculate histograms and normalized them
-        histStandard = cv.calcHist([standardHsv],[0,1],None,[180,256],[0,180,0,256])
-        cv.normalize(histStandard,histStandard,alpha=0,beta=1,norm_type=cv.NORM_MINMAX)
+        # after using matplotlib.pyplot.imsave or cv.imwrite to write file, the file becomes BGR or RGB format if reading
+        # back them using matplotlib.pyplot.imread or cv.imread  3 channels
+        # plt.imsave('targetImghsv.png', targetImgHsv,cmap='gray',vmin=0,vmax=255)
+        # cv.imwrite('targetImghsv_cv.png',targetImgHsv)
+        #plt.imsave('framehsv.png',frameHsv,cmap='gray',vmin=0,vmax=255)
+        frameFileName = 'frame.png'
+        frameGrayedFileName = 'frame_grayed_cv.png'
+        self.logger.debug('save both captured frame and grayed frame to files {},{}'.format(frameFileName,frameGrayedFileName))
+        cv.imwrite(frameFileName, self._frame)
+        cv.imwrite(frameGrayedFileName, frameHsv)
 
-        histTest = cv.calcHist([testHsv],[0,1],None,[180,256],[0,180,0,256])
-        cv.normalize(histTest,histTest,alpha=0,beta=1,norm_type=cv.NORM_MINMAX)
+        # display it in snapshot window
+        # self.previewWindowManager.show(targetImg,120,80)
+        self._snapWindowManager.show(frameHsv, frameHsv.shape[1]+10, 10)
 
-        #find the metric
-        metric = cv.compareHist(histStandard,histTest,cv.HISTCMP_BHATTACHARYYA)
-        self.logger.info('diff_histogram is %.3f' % metric)
+        #calculate the histogram and normalize it
+        targetHist = cv.calcHist([targetImgHsv], [0], None, [256], [0, 256])
+        cv.normalize(targetHist,targetHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
+        frameHist = cv.calcHist([frameHsv], [0], None, [256], [0, 256])
+        cv.normalize(frameHist, frameHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
 
 
-        # cv.matchTemplate(testGray,standardGray,cv.)
-        return '1'
-        pass
 
+        #find and return the metric value , between 0 and 1, the larger the value, the more likely
+        metric = cv.compareHist(targetHist, frameHist, cv.HISTCMP_BHATTACHARYYA)
+        self.logger.info('metric value = %.3f' % metric)
+        return metric
 
 class CommunicationManager:
     """

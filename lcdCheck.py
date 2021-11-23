@@ -14,8 +14,10 @@ import argparse
 import time
 
 
+
 class LcdTestSolution(object):
-    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId):
+      # discard how many frames before taking a snapshot for comparison
+    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,duration):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -26,22 +28,25 @@ class LcdTestSolution(object):
 
         self.logger = logger
         self._windowManager = WindowManager(windowName, self.onKeyPress)
-        self._captureManager = CaptureManager(logger, captureDeviceId,self._windowManager,False)
+        self._snapshotWindowManager = WindowManager("snapshot Window", None)
+        self._captureManager = CaptureManager(logger, captureDeviceId,
+                                              self._windowManager, self._snapshotWindowManager, False)
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
+        self._discardFrameCount = duration
         try:
             self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB'+str(portId),
                                                               self._expireSeconds)
         except ConnectionError:
             self.logger.error('Abort!! Please make sure serial port is ready then retry')
             exit(-1)
-        self.__capturedPicture = None
+        # self.__capturedPicture = None
         self._windowManager.createWindow()
+        self._snapshotWindowManager.createWindow()
         self.__testResults = []
         self._current = None
-        self._compareComplete = False
-        self._comTimeout = False            # communication timeout ?
-        self._comThread = None      # the thread of serial communication
+        self._waitFrameCount = 0  #
+
 
 
 
@@ -55,31 +60,30 @@ class LcdTestSolution(object):
                 command = self._communicationManager.send(self._current)
                 response = self._communicationManager.getResponse()
                 if response == command:
-                    self.logger.info('Press lcd switch key in 3 seconds to set a new image')
-                    time.sleep(3)
+                    self.logger.info('===>>> get response, start  camera capture and preview')
 
-                    self._compareComplete = False
-                    while self._windowManager.isWindowCreated and not self._compareComplete:
+                    self._waitFrameCount = 0
+                    while self._windowManager.isWindowCreated and self._waitFrameCount <=\
+                            self._discardFrameCount:
                         self._captureManager.enterFrame()
                         if mode == 0:
+                            if self._waitFrameCount == self._discardFrameCount:
                             # run in calibration mode, capture and save the next frame img to file
                             # in current directory by the name of self._current
-                            self.__testResults.append(self._captureManager.
-                                                      save(str(self._current)+'.png'))
-                            # self._compareComplete = True
+                                self.__testResults.append(
+                                    self._captureManager.save(str(self._current)+'.png'))
                         else:
                             # compare mode, load standard image file from disk and compare
-                            # it with current image
-                            self.__capturedPicture = self._captureManager.frame
-                            if self.__capturedPicture is not None:
-                                ret = self._captureManager.compare(self.__capturedPicture, self._current)
+                            # it with current image  could NOT get frame like this,otherwise,
+                            #  next time, retrieve will always return empty frames.
+                            # self.__capturedPicture = self._captureManager.frame
+                            if self._waitFrameCount == self._discardFrameCount:
+                                ret = self._captureManager.setCompareFile(self._current)
                                 self.__testResults.append(ret)
-                                # self._compareComplete = True
-                            else:
-                                self.logger.debug('in mode 1, retrieving the capture device returns empty frame')
+
+                        self._waitFrameCount += 1
                         self._captureManager.exitFrame()
                         self._windowManager.processEvents()
-
 
                 elif response == b'':
                     self.logger.debug('no response after few seconds timeout')
@@ -87,13 +91,13 @@ class LcdTestSolution(object):
                 else:
                     self.logger.error("Receive a mismatched response from controller,skip this pic :{}".format(response))
                     self.__testResults.append('O')
-                    self._compareComplete = True
+                    self._waitFrameCount = True
                     break
 
             if retry == 3:
                 self.logger.debug('pic_id:{},communication timeout,no response from controller after 3 times retry!'.format(self._current))
                 self.__testResults.append('N')
-                self._compareComplete = True
+                self._waitFrameCount = True
                 continue
 
 
@@ -110,11 +114,12 @@ class LcdTestSolution(object):
     def onKeyPress(self,keyCode):
         if keyCode == ord('q') or keyCode == 27:
             self._windowManager.destroyWindow()
+            self._snapshotWindowManager.destroyWindow()
         elif keyCode == 32:  # space key
             self.logger.info('save screenshoot to snapshot.png')
             self._captureManager.save('snapshot.png')
         elif keyCode == ord('n') or keyCode == ord('N'):
-            self._compareComplete = True
+            self._waitFrameCount = True
         else:
             self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
 
@@ -124,6 +129,7 @@ class LcdTestSolution(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="lcd manufacturing tester")
     parser.add_argument("--mode", dest='mode',help='calibration or test [0,1]',default=0, type=int)
+    parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=10, type=int)
 
     args = parser.parse_args()
 
@@ -136,7 +142,7 @@ if __name__ == "__main__":
 
     logger.info(args)
 
-    solution = LcdTestSolution(logger, "LCD test window", 0, [1, 2, 3], 0)
+    solution = LcdTestSolution(logger, "LCD manufacture test monitor window", 0, [1], 0, args.duration)
     solution.run(args.mode)
     solution.reportTestResult(args.mode)
 
