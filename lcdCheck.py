@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     logger.info(args)
 
-    solution = LcdTestSolution(logger, "LCD manufacture test monitor window", 0, [1], 0, args.duration)
+    solution = LcdTestSolution(logger, "LCD manufacture test monitor window", 2, [1], 0, args.duration)
     solution.run(args.mode)
     solution.reportTestResult(args.mode)
 

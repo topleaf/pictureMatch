@@ -113,8 +113,8 @@ class CaptureManager:
         # compare it with target image , if needed
         if self.isComparingTarget:
             self._compare()
-
             self._targetFileName = None
+            
         # release the frame
         self._frame = None
         self._enteredFrame = False
@@ -134,7 +134,29 @@ class CaptureManager:
         :param filename:
         :return:
         """
-        self._targetFileName = str(filename) + '.png'
+        self._targetFileName = str(filename) + '.jpg'
+
+    def _convert2bipolar(self, img):
+        onedim = np.reshape(img, -1)
+        m = int(onedim.mean())
+        return cv.threshold(img, m, 255, cv.THRESH_BINARY)
+
+    # find inner rectangle of contour
+    def _findROI(self,hierarchy,contours):
+        if hierarchy.shape[1] == 2:
+            minx,miny = contours[1][0][0]
+            maxx,maxy = contours[1][0][0]
+            for cords in contours[1]:
+                if cords[0,0] < minx:
+                    minx = cords[0,0]
+                if cords[0,1] < miny:
+                    miny = cords[0,1]
+                if cords[0,0] > maxx:
+                    maxx = cords[0,0]
+                if cords[0,1] > maxy:
+                    maxy = cords[0,1]
+            return minx,miny, maxx, maxy
+        return 0,0,0,0
 
     def _compare(self):
         """
@@ -144,28 +166,51 @@ class CaptureManager:
         """
         self.logger.debug('in _compare(), compare frame with file {}'.format(self._targetFileName))
         targetImg = cv.imread(self._targetFileName)
-        targetImgHsv = cv.cvtColor(targetImg, cv.COLOR_BGR2GRAY)
-        frameHsv = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
 
+        targetImgGray = cv.cvtColor(targetImg, cv.COLOR_BGR2GRAY)
+        frameGray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+
+        # step 1: thresh both images using mean threshold
+        # frameMean, frameThresh = self._convert2bipolar(frameGray)
+        # targetMean, targetImgThresh = self._convert2bipolar(targetImgGray)
+
+        _, frameThresh = cv.threshold(frameGray, 30, 255, cv.THRESH_BINARY_INV )
+        _, targetImgThresh = cv.threshold(targetImgGray, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU)
+        # step 2: find contours of both images
+        contoursFrame, hierarchyFrame = cv.findContours(frameThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        contoursTarget, hierarchyTarget = cv.findContours(targetImgThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+        cv.drawContours(self._frame, contoursFrame, -1, (0,255,0), 2)
+
+        # step 3: get cords of ROI, which is the inner rectangle of the contours , to be fixed later
+        minx,miny, maxx,maxy = self._findROI(hierarchyFrame,contoursFrame)
+        cv.rectangle(self._frame,(minx,miny),(maxx, maxy),(255,0,0),2)
+
+        self._snapWindowManager.show(self._frame, self._frame.shape[1]+10, 10)
+        
+
+        # step 3: compare ROI of both image
+        #
+        targetImgBinary = np.array(targetImgGray)
         # after using matplotlib.pyplot.imsave or cv.imwrite to write file, the file becomes BGR or RGB format if reading
         # back them using matplotlib.pyplot.imread or cv.imread  3 channels
-        # plt.imsave('targetImghsv.png', targetImgHsv,cmap='gray',vmin=0,vmax=255)
-        # cv.imwrite('targetImghsv_cv.png',targetImgHsv)
-        #plt.imsave('framehsv.png',frameHsv,cmap='gray',vmin=0,vmax=255)
+        # plt.imsave('targetImghsv.png', targetImgGray,cmap='gray',vmin=0,vmax=255)
+        # cv.imwrite('targetImghsv_cv.png',targetImgGray)
+        #plt.imsave('framehsv.png',frameGray,cmap='gray',vmin=0,vmax=255)
         frameFileName = 'frame.png'
         frameGrayedFileName = 'frame_grayed_cv.png'
         self.logger.debug('save both captured frame and grayed frame to files {},{}'.format(frameFileName,frameGrayedFileName))
         cv.imwrite(frameFileName, self._frame)
-        cv.imwrite(frameGrayedFileName, frameHsv)
+        cv.imwrite(frameGrayedFileName, frameGray)
 
         # display it in snapshot window
         # self.previewWindowManager.show(targetImg,120,80)
-        self._snapWindowManager.show(frameHsv, frameHsv.shape[1]+10, 10)
+        # self._snapWindowManager.show(frameGray, frameGray.shape[1]+10, 10)
 
         #calculate the histogram and normalize it
-        targetHist = cv.calcHist([targetImgHsv], [0], None, [256], [0, 256])
+        targetHist = cv.calcHist([targetImgGray], [0], None, [256], [0, 256])
         cv.normalize(targetHist,targetHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
-        frameHist = cv.calcHist([frameHsv], [0], None, [256], [0, 256])
+        frameHist = cv.calcHist([frameGray], [0], None, [256], [0, 256])
         cv.normalize(frameHist, frameHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
 
 
