@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
+        self._screenResolution = 1920, 1080
         self._windowName = windowName
         self.keyPressCallback = keyPressCallback
         self._isWindowCreated = False
@@ -18,8 +19,23 @@ class WindowManager:
         cv.namedWindow(self._windowName, cv.WINDOW_NORMAL)
         self._isWindowCreated = True
 
-    def show(self, frame, x, y):
+    def show(self, frame, x, y, resize=True):
+        """
+
+        :param frame:
+        :param x:
+        :param y:
+        :param resize: if resize to window to fit into display screen ratio
+        :return:
+        """
         cv.moveWindow(self._windowName, x, y)
+        if resize:
+            scaleX = self._screenResolution[0]/frame.shape[1]
+            scaleY = self._screenResolution[0]/frame.shape[0]
+            scale = min(scaleX, scaleY)
+            width = int(frame.shape[1]*scale)
+            height = int(frame.shape[0]*scale)
+            cv.resizeWindow(self._windowName,width,height)
         cv.imshow(self._windowName, frame)
 
     def destroyWindow(self):
@@ -35,9 +51,10 @@ class WindowManager:
 
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
-                 snapWindowManager = None, shouldMirrorPreview=False):
+                 snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480):
         self.logger = logger
         self._capture = cv.VideoCapture(deviceId)
+        self._setCaptureResolution(width, height)
         self.previewWindowManager = previewWindowManger
         self.shouldMirrorPreview=shouldMirrorPreview
         self._snapWindowManager = snapWindowManager
@@ -46,6 +63,41 @@ class CaptureManager:
         self._imageFileName = None
         self._targetFileName = None     # use current frame to  compare with which image file?
         self._enteredFrame = False
+
+    def _setCaptureResolution(self,width,height):
+        """
+        set video camera's resolution,
+        :param width:  eg 1920
+        :param height:  eg 1080
+        :return:
+        """
+        self._capture.set(cv.CAP_PROP_FRAME_WIDTH, width)
+        self._capture.set(cv.CAP_PROP_FRAME_HEIGHT, height)
+
+
+    def _rescaleFrame(self,frame,percent=75):
+        """
+
+        :param frame:
+        :param percent: target frame percentage to original
+        :return:
+        """
+        width = int(frame.shape[1]*percent/100)
+        height = int(frame.shape[0]*percent/100)
+        dim = (width, height)
+
+        return cv.resize(frame, dim, interpolation=cv.INTER_AREA)
+
+    def _setFrameRes(self,frame, width=640, height=480):
+        """
+
+        :param frame:
+        :param width:
+        :param height:
+        :return:
+        """
+        return cv.resize(frame, (width, height), interpolation=cv.INTER_AREA)
+
 
     @property
     def channel(self):

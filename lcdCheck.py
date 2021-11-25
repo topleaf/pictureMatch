@@ -17,7 +17,7 @@ import time
 
 class LcdTestSolution(object):
       # discard how many frames before taking a snapshot for comparison
-    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,duration):
+    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,duration,videoWidth,videoHeight):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -30,7 +30,8 @@ class LcdTestSolution(object):
         self._windowManager = WindowManager(windowName, self.onKeyPress)
         self._snapshotWindowManager = WindowManager("snapshot Window", None)
         self._captureManager = CaptureManager(logger, captureDeviceId,
-                                              self._windowManager, self._snapshotWindowManager, False)
+                                              self._windowManager, self._snapshotWindowManager,
+                                              False, videoWidth, videoHeight)
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
         self._discardFrameCount = duration
@@ -129,6 +130,10 @@ class LcdTestSolution(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="lcd manufacturing tester")
     parser.add_argument("--mode", dest='mode',help='calibration or test [0,1]',default=0, type=int)
+    parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
+    parser.add_argument("--port", dest='portId', help='USB serial com port ID [0,1,2,3]',default=0, type=int)
+    parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,etc]',default=640, type=int)
+    parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,etc]',default=480, type=int)
     parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=10, type=int)
 
     args = parser.parse_args()
@@ -142,7 +147,9 @@ if __name__ == "__main__":
 
     logger.info(args)
 
-    solution = LcdTestSolution(logger, "LCD manufacture test monitor window", 2, [1], 0, args.duration)
+    solution = LcdTestSolution(logger, "LCD manufacture test monitor window", args.deviceId,
+                               [1], args.portId, args.duration,
+                               args.width, args.height)
     solution.run(args.mode)
     solution.reportTestResult(args.mode)
 
