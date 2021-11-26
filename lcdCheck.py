@@ -17,7 +17,8 @@ import time
 
 class LcdTestSolution(object):
       # discard how many frames before taking a snapshot for comparison
-    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,duration,videoWidth,videoHeight):
+    def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
+                 duration,videoWidth,videoHeight,threshold):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -27,11 +28,15 @@ class LcdTestSolution(object):
         """
 
         self.logger = logger
-        self._windowManager = WindowManager(windowName, self.onKeyPress)
+        self._compareResultList = []
         self._snapshotWindowManager = WindowManager("snapshot Window", None)
+        self._windowManager = WindowManager(windowName, self.onKeyPress)
+
         self._captureManager = CaptureManager(logger, captureDeviceId,
                                               self._windowManager, self._snapshotWindowManager,
-                                              False, videoWidth, videoHeight)
+                                              False, videoWidth, videoHeight,
+                                              self._compareResultList,
+                                              threshold)
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
         self._discardFrameCount = duration
@@ -79,9 +84,7 @@ class LcdTestSolution(object):
                             #  next time, retrieve will always return empty frames.
                             # self.__capturedPicture = self._captureManager.frame
                             if self._waitFrameCount == self._discardFrameCount:
-                                ret = self._captureManager.setCompareFile(self._current)
-                                self.__testResults.append(ret)
-
+                                self._captureManager.setCompareFile(self._current)
                         self._waitFrameCount += 1
                         self._captureManager.exitFrame()
                         self._windowManager.processEvents()
@@ -106,9 +109,10 @@ class LcdTestSolution(object):
         self._communicationManager.close()
         if mode == 0:
             self.logger.info('calibration completes:')
+            self.logger.info('calibration result is: {}'.format(self.__testResults))
         else:
             self.logger.info('test completes:')
-        self.logger.info('result is: {}'.format(self.__testResults))
+            self.logger.info('compare result is: {}'.format(self._compareResultList))
 
 
 
@@ -135,6 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,etc]',default=640, type=int)
     parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,etc]',default=480, type=int)
     parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=10, type=int)
+    parser.add_argument("--threshold", dest='threshold',help='likelyhood of target compared with current frame between 0.0 and 1.0,'
+                                                             ' the larger the value, the stricter,default=0.99', default=0.99, type=float)
 
     args = parser.parse_args()
 
@@ -148,8 +154,8 @@ if __name__ == "__main__":
     logger.info(args)
 
     solution = LcdTestSolution(logger, "LCD manufacture test monitor window", args.deviceId,
-                               [1], args.portId, args.duration,
-                               args.width, args.height)
+                               [1,2,3], args.portId, args.duration,
+                               args.width, args.height, args.threshold)
     solution.run(args.mode)
     solution.reportTestResult(args.mode)
 

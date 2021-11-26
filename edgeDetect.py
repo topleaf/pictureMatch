@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+from filters import SharpenFilter,Embolden5Filter, Embolden3Filter
 
 def rescaleFrame(frame,percent=75):
     """
@@ -76,11 +77,32 @@ if __name__ == "__main__":
     # gradient = cv.subtract(gradX,gradY)
     # gradient = cv.convertScaleAbs(gradient)
 
+
+    # apply sharpen filter to increase high frequency noise
+    # shapenF = SharpenFilter()
+    # shapened = img.copy()
+    # shapenF.apply(img, shapened)
+    # cv.imshow('shapened', shapened)
+    # cv.moveWindow('shapened', 800, 100)
+
+    # apply embolden5 filter
+    # ebF = Embolden5Filter()
+    # ebed = img.copy()
+    # ebF.apply(img, ebed)
+    # cv.imshow('embodied5', ebed)
+    # cv.moveWindow('embodied5', 400, 100)
+    #
+    # ebF = Embolden3Filter()
+    # ebed3 = img.copy()
+    # ebF.apply(img, ebed3)
+    # cv.imshow('embodied3', ebed3)
+    # cv.moveWindow('embodied3', 800, 100)
+
     #remove high frequency noise
     # using 16X16 kernel to average blur
-    blurred = cv.blur(img_gray, (16,16))
+    blurred = cv.blur(img_gray, (7, 7))
     cv.imshow('blurred', blurred)
-    cv.moveWindow('blurred',800,100)
+    cv.moveWindow('blurred', 800, 100)
 
     # threshold to binary
     retval, thresh = cv.threshold(blurred, 0, 255, cv.THRESH_BINARY|cv.THRESH_OTSU)

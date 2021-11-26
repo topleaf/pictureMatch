@@ -2,14 +2,36 @@ import serial
 import cv2 as cv
 import numpy as np
 from matplotlib import pyplot as plt
+import subprocess
+from filters import SharpenFilter
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
-        self._screenResolution = 1920, 1080
+        self._screenResolution = self._getCurrentScreenRes()
         self._windowName = windowName
         self.keyPressCallback = keyPressCallback
         self._isWindowCreated = False
         pass
+
+    def _getCurrentScreenRes(self):
+        """
+        in linux, use 'xrandr|grep \*' to get current system's screen resolution
+        pipeline is used
+        $ xrandr|grep \*
+           1600x900      59.99*   59.94    59.95    59.82
+
+        :return: width,height in int
+        """
+        cmd = ['xrandr']
+        cmd2 =['grep', '\*']
+        p = subprocess.Popen(cmd,stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
+
+        out, junk = p2.communicate()
+        p2.stdout.close()
+        resolution = out.decode('utf-8')
+        return int(resolution.split('x')[0]), int(resolution.split('x')[1].split(' ')[0])
+
 
     @property
     def isWindowCreated(self):
@@ -19,7 +41,7 @@ class WindowManager:
         cv.namedWindow(self._windowName, cv.WINDOW_NORMAL)
         self._isWindowCreated = True
 
-    def show(self, frame, x, y, resize=True):
+    def show(self, frame, x, y, resize=False):
         """
 
         :param frame:
@@ -35,7 +57,7 @@ class WindowManager:
             scale = min(scaleX, scaleY)
             width = int(frame.shape[1]*scale)
             height = int(frame.shape[0]*scale)
-            cv.resizeWindow(self._windowName,width,height)
+            cv.resizeWindow(self._windowName, width, height)
         cv.imshow(self._windowName, frame)
 
     def destroyWindow(self):
@@ -51,7 +73,8 @@ class WindowManager:
 
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
-                 snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480):
+                 snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
+                 compareResultList = [], matchThreshold = 0.99):
         self.logger = logger
         self._capture = cv.VideoCapture(deviceId)
         self._setCaptureResolution(width, height)
@@ -63,6 +86,8 @@ class CaptureManager:
         self._imageFileName = None
         self._targetFileName = None     # use current frame to  compare with which image file?
         self._enteredFrame = False
+        self._compareResultList = compareResultList
+        self._matchThreshold = matchThreshold
 
     def _setCaptureResolution(self,width,height):
         """
@@ -71,8 +96,8 @@ class CaptureManager:
         :param height:  eg 1080
         :return:
         """
-        self._capture.set(cv.CAP_PROP_FRAME_WIDTH, width)
-        self._capture.set(cv.CAP_PROP_FRAME_HEIGHT, height)
+        res = self._capture.set(cv.CAP_PROP_FRAME_WIDTH, width)
+        res =self._capture.set(cv.CAP_PROP_FRAME_HEIGHT, height)
 
 
     def _rescaleFrame(self,frame,percent=75):
@@ -158,7 +183,7 @@ class CaptureManager:
         if self.isWritingImage:
             self.logger.debug('in exitFrame(),write frame to file {}'.format(self._imageFileName))
             cv.imwrite(self._imageFileName, self._frame)
-            self._snapWindowManager.show(self._frame, self._frame.shape[1]+10, 10)
+            self._snapWindowManager.show(self._frame, self._frame.shape[1]+410, 10)
             self._imageFileName = None
 
 
@@ -180,97 +205,116 @@ class CaptureManager:
         self._imageFileName = filename
         return '0'
 
-    def setCompareFile(self,filename):
+    def setCompareFile(self, filename):
         """
         set targetFileName to be loaded and compare with current frame
         :param filename:
         :return:
         """
-        self._targetFileName = str(filename) + '.jpg'
+        self._targetFileName = str(filename) + '.png'
 
     def _convert2bipolar(self, img):
         onedim = np.reshape(img, -1)
         m = int(onedim.mean())
         return cv.threshold(img, m, 255, cv.THRESH_BINARY)
 
-    # find inner rectangle of contour
-    def _findROI(self,hierarchy,contours):
-        if hierarchy.shape[1] == 2:
-            minx,miny = contours[1][0][0]
-            maxx,maxy = contours[1][0][0]
-            for cords in contours[1]:
-                if cords[0,0] < minx:
-                    minx = cords[0,0]
-                if cords[0,1] < miny:
-                    miny = cords[0,1]
-                if cords[0,0] > maxx:
-                    maxx = cords[0,0]
-                if cords[0,1] > maxy:
-                    maxy = cords[0,1]
-            return minx,miny, maxx, maxy
-        return 0,0,0,0
 
     def _compare(self):
         """
-        compare current frame with predefined targetFileName and return metric of likelyhood
-        between 0 and 1, the larger , both pictures are more likely to be the same
+        use cv.matchTemplate to compare targetImg with current frame
+        append maxloc,minloc,maxval,minval to self._compareResultList
+        threshold is likelyhood of matched criteria, between 0.0 - 1.0,
+        the larger, the stricter
         :return:
         """
-        self.logger.debug('in _compare(), compare frame with file {}'.format(self._targetFileName))
         targetImg = cv.imread(self._targetFileName)
 
-        targetImgGray = cv.cvtColor(targetImg, cv.COLOR_BGR2GRAY)
-        frameGray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+        th, tw, _ = targetImg.shape
+        h, w, _ = self._frame.shape
+        temp_w, temp_h = w - 2*10, h - 2*20
+        templateImg = self._frame[20:temp_h+20, 10:temp_w+10]
+        cv.imwrite(self._targetFileName.split('.')[0]+'_template.png', templateImg)
 
-        # step 1: thresh both images using mean threshold
-        # frameMean, frameThresh = self._convert2bipolar(frameGray)
-        # targetMean, targetImgThresh = self._convert2bipolar(targetImgGray)
+        result = cv.matchTemplate(targetImg, templateImg, cv.TM_CCOEFF_NORMED)
 
-        _, frameThresh = cv.threshold(frameGray, 30, 255, cv.THRESH_BINARY_INV )
-        _, targetImgThresh = cv.threshold(targetImgGray, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU)
-        # step 2: find contours of both images
-        contoursFrame, hierarchyFrame = cv.findContours(frameThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-        contoursTarget, hierarchyTarget = cv.findContours(targetImgThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        minval, maxval, minloc, maxloc = cv.minMaxLoc(result)
 
-        cv.drawContours(self._frame, contoursFrame, -1, (0,255,0), 2)
+        yloc, xloc = np.where(result >= self._matchThreshold)
+        self.logger.info('maxval = {},length of xloc is {}'.format(maxval, len(xloc)))
+        rectangles = []
+        for (x, y) in zip(xloc, yloc):
+            rectangles.append((int(x), int(y), temp_w, temp_h))
+            rectangles.append((int(x), int(y), temp_w, temp_h))
+        rectangles, weights = cv.groupRectangles(rectangles, 1, 0.2)
+        for (x, y, w, h) in rectangles:
+            cv.rectangle(targetImg, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
-        # step 3: get cords of ROI, which is the inner rectangle of the contours , to be fixed later
-        minx,miny, maxx,maxy = self._findROI(hierarchyFrame,contoursFrame)
-        cv.rectangle(self._frame,(minx,miny),(maxx, maxy),(255,0,0),2)
-
-        self._snapWindowManager.show(self._frame, self._frame.shape[1]+10, 10)
-        
-
-        # step 3: compare ROI of both image
-        #
-        targetImgBinary = np.array(targetImgGray)
-        # after using matplotlib.pyplot.imsave or cv.imwrite to write file, the file becomes BGR or RGB format if reading
-        # back them using matplotlib.pyplot.imread or cv.imread  3 channels
-        # plt.imsave('targetImghsv.png', targetImgGray,cmap='gray',vmin=0,vmax=255)
-        # cv.imwrite('targetImghsv_cv.png',targetImgGray)
-        #plt.imsave('framehsv.png',frameGray,cmap='gray',vmin=0,vmax=255)
-        frameFileName = 'frame.png'
-        frameGrayedFileName = 'frame_grayed_cv.png'
-        self.logger.debug('save both captured frame and grayed frame to files {},{}'.format(frameFileName,frameGrayedFileName))
-        cv.imwrite(frameFileName, self._frame)
-        cv.imwrite(frameGrayedFileName, frameGray)
-
-        # display it in snapshot window
-        # self.previewWindowManager.show(targetImg,120,80)
-        # self._snapWindowManager.show(frameGray, frameGray.shape[1]+10, 10)
-
-        #calculate the histogram and normalize it
-        targetHist = cv.calcHist([targetImgGray], [0], None, [256], [0, 256])
-        cv.normalize(targetHist,targetHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
-        frameHist = cv.calcHist([frameGray], [0], None, [256], [0, 256])
-        cv.normalize(frameHist, frameHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
+        # cv.imwrite(self._targetFileName.split('.')[0]+"_result.png", result)
+        cv.imwrite(self._targetFileName.split('.')[0]+"_match.png", targetImg)
+        self._compareResultList.append(maxval)
 
 
-
-        #find and return the metric value , between 0 and 1, the larger the value, the more likely
-        metric = cv.compareHist(targetHist, frameHist, cv.HISTCMP_BHATTACHARYYA)
-        self.logger.info('metric value = %.3f' % metric)
-        return metric
+    # def _compare(self):
+    #     """
+    #     compare current frame with predefined targetFileName and return metric of likelyhood
+    #     between 0 and 1, the larger , both pictures are more likely to be the same
+    #     :return:
+    #     """
+    #     self.logger.debug('in _compare(), compare frame with file {}'.format(self._targetFileName))
+    #     targetImg = cv.imread(self._targetFileName)
+    #
+    #     targetImgGray = cv.cvtColor(targetImg, cv.COLOR_BGR2GRAY)
+    #     frameGray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+    #
+    #     # step 1: thresh both images using mean threshold
+    #     # frameMean, frameThresh = self._convert2bipolar(frameGray)
+    #     # targetMean, targetImgThresh = self._convert2bipolar(targetImgGray)
+    #
+    #     _, frameThresh = cv.threshold(frameGray, 30, 255, cv.THRESH_BINARY_INV )
+    #     _, targetImgThresh = cv.threshold(targetImgGray, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU)
+    #     # step 2: find contours of both images
+    #     contoursFrame, hierarchyFrame = cv.findContours(frameThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    #     contoursTarget, hierarchyTarget = cv.findContours(targetImgThresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    #
+    #     cv.drawContours(self._frame, contoursFrame, -1, (0,255,0), 2)
+    #
+    #     # step 3: get cords of ROI, which is the inner rectangle of the contours , to be fixed later
+    #     minx,miny, maxx,maxy = self._findROI(hierarchyFrame,contoursFrame)
+    #     cv.rectangle(self._frame,(minx,miny),(maxx, maxy),(255,0,0),2)
+    #
+    #     self._snapWindowManager.show(self._frame, self._frame.shape[1]+10, 10)
+    #
+    #
+    #     # step 3: compare ROI of both image
+    #     #
+    #     targetImgBinary = np.array(targetImgGray)
+    #     # after using matplotlib.pyplot.imsave or cv.imwrite to write file, the file becomes BGR or RGB format if reading
+    #     # back them using matplotlib.pyplot.imread or cv.imread  3 channels
+    #     # plt.imsave('targetImghsv.png', targetImgGray,cmap='gray',vmin=0,vmax=255)
+    #     # cv.imwrite('targetImghsv_cv.png',targetImgGray)
+    #     #plt.imsave('framehsv.png',frameGray,cmap='gray',vmin=0,vmax=255)
+    #     frameFileName = 'frame.png'
+    #     frameGrayedFileName = 'frame_grayed_cv.png'
+    #     self.logger.debug('save both captured frame and grayed frame to files {},{}'.format(frameFileName,frameGrayedFileName))
+    #     cv.imwrite(frameFileName, self._frame)
+    #     cv.imwrite(frameGrayedFileName, frameGray)
+    #
+    #     # display it in snapshot window
+    #     # self.previewWindowManager.show(targetImg,120,80)
+    #     # self._snapWindowManager.show(frameGray, frameGray.shape[1]+10, 10)
+    #
+    #     #calculate the histogram and normalize it
+    #     targetHist = cv.calcHist([targetImgGray], [0], None, [256], [0, 256])
+    #     cv.normalize(targetHist,targetHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
+    #     frameHist = cv.calcHist([frameGray], [0], None, [256], [0, 256])
+    #     cv.normalize(frameHist, frameHist,alpha=0, beta=255, norm_type=cv.NORM_MINMAX)
+    #
+    #
+    #
+    #     #find and return the metric value , between 0 and 1, the larger the value, the more likely
+    #     metric = cv.compareHist(targetHist, frameHist, cv.HISTCMP_BHATTACHARYYA)
+    #     self.logger.info('metric value = %.3f' % metric)
+    #     return metric
 
 class CommunicationManager:
     """
