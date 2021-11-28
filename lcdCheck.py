@@ -154,7 +154,7 @@ if __name__ == "__main__":
     logger.info(args)
 
     solution = LcdTestSolution(logger, "LCD manufacture test monitor window", args.deviceId,
-                               [1,2,3], args.portId, args.duration,
+                               [1], args.portId, args.duration,
                                args.width, args.height, args.threshold)
     solution.run(args.mode)
     solution.reportTestResult(args.mode)

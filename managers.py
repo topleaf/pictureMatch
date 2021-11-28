@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
+from edgeDetect import isolateROI
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
@@ -229,10 +230,16 @@ class CaptureManager:
         """
         targetImg = cv.imread(self._targetFileName)
 
-        th, tw, _ = targetImg.shape
-        h, w, _ = self._frame.shape
-        temp_w, temp_h = w - 2*10, h - 2*20
-        templateImg = self._frame[20:temp_h+20, 10:temp_w+10]
+        # get rectange of the ROI in target picture, removing background,
+        x, y, tw, th = isolateROI(targetImg, False, False)
+        targetImg = targetImg[y:y+th, x:x+tw]
+        cv.imwrite(self._targetFileName.split('.')[0]+'_targetROI.png', targetImg)
+
+        x, y, temp_w, temp_h = isolateROI(self._frame, False,True)
+        templateImg = self._frame[y:y+temp_h, x:x+temp_w]
+        # h, w, _ = self._frame.shape
+        # temp_w, temp_h = w - 2*10, h - 2*20
+        # templateImg = self._frame[20:temp_h+20, 10:temp_w+10]
         cv.imwrite(self._targetFileName.split('.')[0]+'_template.png', templateImg)
 
         result = cv.matchTemplate(targetImg, templateImg, cv.TM_CCOEFF_NORMED)
