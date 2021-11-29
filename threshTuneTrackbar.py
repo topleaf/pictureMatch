@@ -25,7 +25,7 @@ if __name__ == '__main__':
         camera.set(4,cameraResH)
 
     else:
-        img = cv2.imread("origin.jpg")
+        img = cv2.imread("origin_ok.jpg")
     windowName = 'Contour image'
     cv2.namedWindow(windowName)
 
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     cv2.createTrackbar(tbCannyThr1, windowName, 0, 255, func)
     cv2.createTrackbar(tbCannyThr2, windowName, 0, 255, func)
     tbBlurlevel = 'blur level'
-    cv2.createTrackbar(tbBlurlevel, windowName, 1, 255, func)
+    cv2.createTrackbar(tbBlurlevel, windowName, 1, 50, func)
 
     tbMinArea = 'minArea'
     tbMaxArea = 'maxArea'
@@ -55,17 +55,16 @@ if __name__ == '__main__':
             success, img = camera.read()
             if not success:
                 break
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
         threshold_1 = cv2.getTrackbarPos(tbCannyThr1, windowName)
         threshold_2 = cv2.getTrackbarPos(tbCannyThr2, windowName)
         blurr_level = cv2.getTrackbarPos(tbBlurlevel, windowName)
-        blurr_level += 1    # avoid 0
+        blurr_level = (lambda x: x+1 if x % 2 == 0 else x)(blurr_level)    # avoid even
 
         minArea = cv2.getTrackbarPos(tbMinArea, windowName)
         maxArea = cv2.getTrackbarPos(tbMaxArea, windowName)
         s = cv2.getTrackbarPos(switch, windowName)
 
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         if s == 0:
             cv2.imshow(windowName, img)
         elif s == 1:
@@ -94,37 +93,34 @@ if __name__ == '__main__':
             imgErode = cv2.erode(imgDilate, kernel, iterations=2)
             cv2.imshow (windowName, imgErode)
         else:
-            blur = cv2.blur(gray, (blurr_level, blurr_level), 1)
-            imgCanny = cv2.Canny(blur, threshold_1,threshold_2)
-            imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
-            imgErode = cv2.erode(imgDilate, kernel, iterations=2)
-
-            # cv2.imshow (windowName, imgDilate)
-
-            # imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
-            # imgErode = cv2.erode(imgDilate, kernel,iterations=2)
-
-            contours, hierarchy = cv2.findContours(imgErode, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            contours_img = img.copy()
             # get the lcd Screen part rectangle from original img
-            contours_img, conts = getRequiredContours(contours_img, hierarchy, contours, minArea=minArea, maxArea=maxArea, draw=True)
+            contours_img = img.copy()
+            contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+                                                      kernel,
+                                                      minArea=minArea, maxArea=maxArea,
+                                                      cornerNumber=4, draw=True,
+                                                      windowName=windowName)
             if len(conts) != 0:
                 print('hhhh,conts = {}'.format(conts))
-                minAreaRectBox = conts[0][3]
+                minAreaRectBox = conts[0][2]
                 # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
                 imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
                 cv2.imshow('warped lcd screen img', imgWarp)
 
                 # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
-                contours_img2, conts2 = getRequiredContours(imgWarp, hierarchy, contours, minArea=20, maxArea=minArea-200, draw=True)
+                contours_img2, conts2 = \
+                    getRequiredContours(imgWarp, blurr_level, threshold_1, threshold_2,
+                                      kernel,
+                                      minArea=4, maxArea=minArea,
+                                      cornerNumber=4, draw=True,
+                                      windowName='lcd internal window')
+
                 if len(conts2) != 0:
                     for symbol in conts2:
-                        cv2.polylines(contours_img2, [symbol[2]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
-                cv2.imshow('warped lcd screen img', contours_img2)
+                        cv2.polylines(contours_img2, [symbol[1]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
+                    # cv2.imshow('warped lcd screen img', contours_img2)
 
 
-            # for c in conts:
-            cv2.imshow(windowName, contours_img)
 
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
