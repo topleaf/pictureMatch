@@ -35,8 +35,8 @@ def reorder(boxPoints):
     """
     print('boxPoints shape is {}'.format(boxPoints.shape))
     newBox = np.zeros_like(boxPoints)
-    boxPoints = boxPoints.reshape((4,2))
-    add = boxPoints.sum(1)
+    boxPoints = boxPoints.reshape((4, 2))
+    add = boxPoints.sum(1)  # for each point in boxPoints, make a list of add , which is [x1+y1, x2+y2,x3+y3,x4+y4]
     newBox[0] = boxPoints[np.argmin(add)]
     newBox[3] = boxPoints[np.argmax(add)]
     diff = np.diff(boxPoints, axis = 1)
@@ -45,41 +45,44 @@ def reorder(boxPoints):
     return newBox
 
 # find contours that  are closed graph with minArea,cornerNumber
-def getRequiredContours(img, hierarchy, contours, minArea=40000, cornerNumber=4, draw = True):
+def getRequiredContours(img, hierarchy, contours, minArea=4000, maxArea = 50000,cornerNumber=4, draw = True):
     """
 
     :param img:
     :param hierarchy:
     :param contours:
     :param minArea:  contour has larger area than this minimum area
-    :param cornerNumber:  contour has corners larger than this
-    :return: list of satisfactory contours (c ,area, approx, boundingbox )
+    :param cornerNumber:  contour has corners number that equals to this
+    :return: img , list of satisfactory contours (c ,area, approx, boundingbox )
     """
-    print('hierarchy shape is {}'.format(hierarchy.shape))
+    if hierarchy is not None:
+        print('hierarchy shape is {}'.format(hierarchy.shape))
     finalContours = []
     for c in contours:
         area = cv.contourArea(c)
         peri = cv.arcLength(c, True)
-        approx = cv.approxPolyDP(c, 0.02*peri, True)
+        approx = cv.approxPolyDP(c, 0.01*peri, True)
 
-        if area >= minArea and len(approx) >= cornerNumber:
-            #find bounding box coordinates, and draw it in Green
+        # reorder approximate points array in the  order of
+        # 1(topleft),2(topright),3(bottomleft),4(bottomright)
+
+        if area <= maxArea and area >= minArea and len(approx) >= cornerNumber:
+            #find approx bounding box coordinates, and draw it in Green
             x,y,w,h = cv.boundingRect(c)
             if draw: cv.rectangle(img, (x,y),(x+w,y+h),(0,255,0), 2)
 
-            #find minimum area
-            rect = cv.minAreaRect(c)
-
+            # bbox = cv.boundingRect(approx)
+            #find minimum area of the contour
+            rect = cv.minAreaRect(approx)
+            # (x,y),(w,h) ,angle = rect    x,y is the center, w is width, h is height of the round rectangle
             # calculate coordinates of the minimum area rectangle
             box = cv.boxPoints(rect)
 
             # normalize coordinates to integers
             box = np.int0(box)
-            print('box coordinates = {}'.format(box))
-            # box = reorder(box)
-            # print('after reorder: box = {}'.format(box))
+            print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
 
-            #draw contours in RED
+            #draw the contour's minAreaRect box in RED
             if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 3)
 
             finalContours.append((c, area, approx, box))
@@ -93,7 +96,28 @@ def getRequiredContours(img, hierarchy, contours, minArea=40000, cornerNumber=4,
 
     # sort the list by contour's area, so that the larger contours are in the first
     finalContours = sorted(finalContours, key=lambda x: x[1], reverse=True)
-    return finalContours
+    return img, finalContours
+
+
+def warpImg(img, points, w, h):
+    """
+    mapping source img with  4 corners points in the order of 1(topleft),2(topright),3(bottomleft),4(bottomright)
+    to new imgWarp with 4 corners points at coordinates (0,0),(w,0),(0,h),(w,h)
+    :param img:
+    :param points:
+    :param w:  width in pixel
+    :param h: height in pixel
+    :return:
+    """
+    #print(points)
+    points = reorder(points)
+
+    pts1 = np.float32(points)
+    pts2 = np.float32([[0, 0], [w, 0], [0, h], [w, h]])
+    matrix = cv.getPerspectiveTransform(pts1, pts2)
+
+    imgWarp = cv.warpPerspective(img, matrix, (w, h))
+    return imgWarp
 
 
 def isolateROI(img, display = True,save = True):
@@ -169,7 +193,7 @@ def isolateROI(img, display = True,save = True):
     contours, hierarchy = cv.findContours(thresh, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
     print('contours len = {}'.format(len(contours)))
     contours_img = img.copy()
-    conts = getRequiredContours(contours_img, hierarchy, contours)
+    contours_img, conts = getRequiredContours(contours_img, hierarchy, contours)
     print('found satisfactory contours: {}'.format(conts))
 
     # cv.drawContours(img, contours, -1, (0,255,0), 2)
@@ -197,7 +221,7 @@ def isolateROI(img, display = True,save = True):
     # w = maxx - minx
     # h = maxy - miny
     # cv.rectangle(contours_img, (minx,miny),(minx+w,miny+h),(255,255,255), 2)  #draw WHITE line
-    cv.drawContours(contours_img, approx,0,(255,255,255),4)
+    cv.drawContours(contours_img, approx, 0, (255,255,255),4)
     if display:
         cv.imshow('isolateROI',contours_img)
     if save:
