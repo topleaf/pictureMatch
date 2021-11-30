@@ -48,7 +48,7 @@ def reorder(boxPoints):
 # find contours that  are closed graph with minArea,cornerNumber
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
-                        draw = True, windowName = 'window'):
+                        draw = True, windowName = 'window',needPreProcess=True):
     """
 
     :param img: original image
@@ -61,11 +61,14 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
     :param cornerNumber:  contour has corners number that are larger than this
     :return: img , list of satisfactory contours_related info (area, approx, boundingbox )
     """
-    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-    imgCanny = cv.Canny(blur, threshold_1,threshold_2)
-    imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
-    imgErode = cv.erode(imgDilate, kernel, iterations=2)
+    if needPreProcess:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+        imgCanny = cv.Canny(blur, threshold_1,threshold_2)
+        imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
+        imgErode = cv.erode(imgDilate, kernel, iterations=3)
+    else:
+        imgErode = img
 
     contours, hierarchy = cv.findContours(imgErode, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
@@ -83,10 +86,10 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
         if area <= maxArea and area >= minArea and len(approx) >= cornerNumber:
             #find approx bounding box coordinates, and draw it in Green
             x,y,w,h = cv.boundingRect(c)
-            if draw:
+            # if draw:
                 # cv.rectangle(img, (x,y),(x+w,y+h),(0,255,0), 2)
-                cv.putText(img,"area={:.1f}".format(area),(x,y+30),
-                           cv.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0),2)
+                # cv.putText(img,"area={:.1f}".format(area),(x,y+30),
+                #            cv.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0),2)
 
             # bbox = cv.boundingRect(approx)
             #find minimum area of the contour
@@ -100,7 +103,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
             print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
 
             #draw the contour's minAreaRect box in RED
-            if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 3)
+            if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 2)
 
             finalContours.append((area, approx, box))
             # # calculate center and radius of minimum enclosing circle
@@ -138,14 +141,17 @@ def warpImg(img, points, w, h):
     return imgWarp
 
 
-def isolateROI(img, display = True,save = True):
+def isolateROI(img, display = True,save = True,wP = 600,hP = 600):
     """
 
     :param originalImg:
     :param display:
     :param save:
-    :return: top,left, w,h coordinates
+    :param wP: width of project size in pixel
+    :param hP: height of project size in pixel
+    :return: the warped image of ROI, projected to (wP,hP) size coodination
     """
+
     if img is None:
         print('img is None')
         raise ValueError
@@ -231,28 +237,20 @@ def isolateROI(img, display = True,save = True):
         # cv.imwrite('resized_50.png', rescaleFrame(img,50))
         # cv.imwrite('resized_176_144.png',setFrameRes(img,176,144))
 
-    bbox = conts[0][2]     # the minAreaRect of the largest contour
-    # if len(approx) == 4:  # with 4 corners
-    #     pass
-    # minx, miny, maxx, maxy = conts[0, 0], conts[0,1], 0, 0
-    # for x,y in conts:
-    #     if x < minx:
-    #         minx = x
-    #     if x > maxx:
-    #         maxx = x
-    #     if y < miny:
-    #         miny = y
-    #     if y > maxy:
-    #         maxy = y
-    # w = maxx - minx
-    # h = maxy - miny
-    # cv.rectangle(contours_img, (minx,miny),(minx+w,miny+h),(255,255,255), 2)  #draw WHITE line
     cv.drawContours(contours_img, [bbox], 0, (255,255,255),4)
     if display:
         cv.imshow('isolateROI',contours_img)
     if save:
         cv.imwrite('isolateROI.png',contours_img)
-    return conts[0][1]  # return approx
+    minAreaRectBox = conts[0][2]   # the minAreaRect of the largest contour
+    # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
+    imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
+    if display:
+        cv.imshow('warped_isolatedROI', imgWarp)
+    if save:
+        cv.imwrite('isolatedROI_warped.png', imgWarp)
+
+    return imgWarp  # return warped image
 
     # # get edge detect using Canny
     # cv.imwrite('./pictures/1-canny.jpg', cv.Canny(img_gray, 175, 10))

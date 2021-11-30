@@ -75,7 +75,7 @@ class WindowManager:
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
-                 compareResultList = [], matchThreshold = 0.99):
+                 compareResultList = [], matchThreshold = 0.99, warpImgSize = (600,600)):
         self.logger = logger
         self._capture = cv.VideoCapture(deviceId)
         self._setCaptureResolution(width, height)
@@ -89,6 +89,7 @@ class CaptureManager:
         self._enteredFrame = False
         self._compareResultList = compareResultList
         self._matchThreshold = matchThreshold
+        self._warpImgSize = warpImgSize
 
     def _setCaptureResolution(self,width,height):
         """
@@ -230,16 +231,14 @@ class CaptureManager:
         """
         targetImg = cv.imread(self._targetFileName)
 
-        # get rectange of the ROI in target picture, removing background,
-        x, y, tw, th = isolateROI(targetImg, False, False)
-        targetImg = targetImg[y:y+th, x:x+tw]
+        # get image of the ROI in target picture, removing unrelated background,
+        # projecting the ROI to (wP,hP) size coordination system
+        targetImg = isolateROI(targetImg, False, False,
+                               wP=self._warpImgSize[0], hP=self._warpImgSize[1])
         cv.imwrite(self._targetFileName.split('.')[0]+'_targetROI.png', targetImg)
 
-        x, y, temp_w, temp_h = isolateROI(self._frame, False,True)
-        templateImg = self._frame[y:y+temp_h, x:x+temp_w]
-        # h, w, _ = self._frame.shape
-        # temp_w, temp_h = w - 2*10, h - 2*20
-        # templateImg = self._frame[20:temp_h+20, 10:temp_w+10]
+        templateImg = isolateROI(self._frame, False,True,
+                                 wP=self._warpImgSize[0], hP=self._warpImgSize[1])
         cv.imwrite(self._targetFileName.split('.')[0]+'_template.png', templateImg)
 
         result = cv.matchTemplate(targetImg, templateImg, cv.TM_CCOEFF_NORMED)
@@ -250,8 +249,8 @@ class CaptureManager:
         self.logger.info('maxval = {},length of xloc is {}'.format(maxval, len(xloc)))
         rectangles = []
         for (x, y) in zip(xloc, yloc):
-            rectangles.append((int(x), int(y), temp_w, temp_h))
-            rectangles.append((int(x), int(y), temp_w, temp_h))
+            rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
+            rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
         rectangles, weights = cv.groupRectangles(rectangles, 1, 0.2)
         for (x, y, w, h) in rectangles:
             cv.rectangle(targetImg, (x, y), (x + w, y + h), (0, 0, 255), 2)

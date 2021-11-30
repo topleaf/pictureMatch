@@ -1,6 +1,9 @@
 """
 utility to try out different blur level and threshold level
 in order to get a good contour rectangle
+
+press 'a' key to save current images(original,detected,warped_image) to disk for late checking
+press esc key to exit
 """
 import cv2
 import numpy as np
@@ -18,19 +21,26 @@ hP = 300*scale
 
 
 if __name__ == '__main__':
-    webCam = False
+    webCam = True
     if webCam:
-        camera = cv2.VideoCapture(0)
+        camera = cv2.VideoCapture(2)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
+        originalFileName = 'originLiveCapture.png'
 
     else:
-        img = cv2.imread("origin_ok.jpg")
+        originalFileName = "target1_detected.png"
+        img = cv2.imread(originalFileName)
+
     windowName = 'Contour image'
     cv2.namedWindow(windowName)
 
-    tbCannyThr1 = 'canny threshold 1'
-    tbCannyThr2 = 'canny threshold 2'
+    saveLcdScreenMarked = False
+    saveWarpImg = False
+    saveLcdInternal = False
+
+    tbCannyThr1 = 'canny threshold low'
+    tbCannyThr2 = 'canny threshold high'
     cv2.createTrackbar(tbCannyThr1, windowName, 0, 255, func)
     cv2.createTrackbar(tbCannyThr2, windowName, 0, 255, func)
     tbBlurlevel = 'blur level'
@@ -39,7 +49,7 @@ if __name__ == '__main__':
     tbMinArea = 'minArea'
     tbMaxArea = 'maxArea'
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
-    cv2.createTrackbar(tbMaxArea, windowName, 20, 50000, func)
+    cv2.createTrackbar(tbMaxArea, windowName, 20, 500000, func)
 
     switch = '0 : Origin\n1 : Gray\n2 : blur\n 3: Canny\n 4: dilate\n 5:erode\n 6:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
@@ -90,8 +100,24 @@ if __name__ == '__main__':
             # imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=1)
             # cv2.imshow (windowName, imgDilate)
             imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
-            imgErode = cv2.erode(imgDilate, kernel, iterations=2)
-            cv2.imshow (windowName, imgErode)
+            imgErode = cv2.erode(imgDilate, kernel, iterations=3)
+            # cv2.imshow (windowName, imgErode)
+            # start of getRequiredContours
+            contours_img = imgErode.copy()
+            contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+                                                      kernel,
+                                                      minArea=minArea, maxArea=maxArea,
+                                                      cornerNumber=4, draw=True,
+                                                      windowName=windowName,
+                                                      needPreProcess=False)
+            if len(conts) != 0:
+                print('hhhh,conts = {}'.format(conts))
+                minAreaRectBox = conts[0][2]
+                # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
+                imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
+                cv2.imshow('warped lcd screen img', imgWarp)
+
+            # end of getcontours
         else:
             # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
@@ -107,7 +133,14 @@ if __name__ == '__main__':
                 imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
                 cv2.imshow('warped lcd screen img', imgWarp)
 
-                # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
+                if saveLcdScreenMarked:
+                    cv2.imwrite(originalFileName.split('.')[0] +'_detected.png', contours_img)
+                    saveLcdScreenMarked = False
+                if saveWarpImg:
+                    cv2.imwrite(originalFileName.split('.')[0] + '_warpImg.png', imgWarp)
+                    saveWarpImg = False
+
+        # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
                 contours_img2, conts2 = \
                     getRequiredContours(imgWarp, blurr_level, threshold_1, threshold_2,
                                       kernel,
@@ -119,10 +152,19 @@ if __name__ == '__main__':
                     for symbol in conts2:
                         cv2.polylines(contours_img2, [symbol[1]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
                     # cv2.imshow('warped lcd screen img', contours_img2)
+                    if saveLcdInternal:
+                        cv2.imwrite(originalFileName.split('.')[0] + '_insideDetectImg.png', contours_img2)
+                        saveLcdInternal = False
 
 
 
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
             break
+        if k == ord('a') or k == 'A':
+        # save current frames(lcdScreenMarkedout, warpImg and contours_img2) to disk
+            saveLcdScreenMarked = True
+            saveWarpImg = True
+            saveLcdInternal = True
+
     cv2.destroyAllWindows()
