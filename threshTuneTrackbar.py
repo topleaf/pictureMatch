@@ -23,21 +23,22 @@ hP = 300*scale
 if __name__ == '__main__':
     webCam = True
     if webCam:
-        camera = cv2.VideoCapture(2)
+        camera = cv2.VideoCapture(0)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
         originalFileName = 'originLiveCapture.png'
 
     else:
-        originalFileName = "target1_detected.png"
+        originalFileName = "target_detected.png"
         img = cv2.imread(originalFileName)
 
-    windowName = 'Contour image'
+    windowName = 'looking for main Contour image'
     cv2.namedWindow(windowName)
 
     saveLcdScreenMarked = False
     saveWarpImg = False
     saveLcdInternal = False
+    drawRect = False
 
     tbCannyThr1 = 'canny threshold low'
     tbCannyThr2 = 'canny threshold high'
@@ -55,10 +56,10 @@ if __name__ == '__main__':
     cv2.createTrackbar(switch, windowName, 0, 6, func)
     cv2.setTrackbarPos(switch, windowName, 0)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    cv2.setTrackbarPos(tbMinArea, windowName, 2500)
-    cv2.setTrackbarPos(tbMaxArea, windowName, 10000)
-    cv2.setTrackbarPos(tbCannyThr1, windowName, 80)
-    cv2.setTrackbarPos(tbCannyThr2, windowName, 25)
+    cv2.setTrackbarPos(tbMinArea, windowName, 25000)
+    cv2.setTrackbarPos(tbMaxArea, windowName, 29112)
+    cv2.setTrackbarPos(tbCannyThr1, windowName, 81)
+    cv2.setTrackbarPos(tbCannyThr2, windowName, 112)
     kernel = np.ones((5, 5))
     while(1):
         if webCam:
@@ -107,9 +108,9 @@ if __name__ == '__main__':
             contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
-                                                      cornerNumber=4, draw=True,
-                                                      windowName=windowName,
+                                                      cornerNumber=4, draw=drawRect,
                                                       needPreProcess=False)
+            cv2.imshow(windowName,contours_img)
             if len(conts) != 0:
                 print('hhhh,conts = {}'.format(conts))
                 minAreaRectBox = conts[0][2]
@@ -124,8 +125,9 @@ if __name__ == '__main__':
             contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
-                                                      cornerNumber=4, draw=True,
-                                                      windowName=windowName)
+                                                      cornerNumber=4, draw=drawRect,
+                                                      )
+            cv2.imshow(windowName, contours_img)
             if len(conts) != 0:
                 print('hhhh,conts = {}'.format(conts))
                 minAreaRectBox = conts[0][2]
@@ -146,12 +148,12 @@ if __name__ == '__main__':
                                       kernel,
                                       minArea=4, maxArea=minArea,
                                       cornerNumber=4, draw=True,
-                                      windowName='lcd internal window')
+                                      )
 
                 if len(conts2) != 0:
                     for symbol in conts2:
                         cv2.polylines(contours_img2, [symbol[1]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
-                    # cv2.imshow('warped lcd screen img', contours_img2)
+                    cv2.imshow('lcd internal window', contours_img2)
                     if saveLcdInternal:
                         cv2.imwrite(originalFileName.split('.')[0] + '_insideDetectImg.png', contours_img2)
                         saveLcdInternal = False
@@ -166,5 +168,9 @@ if __name__ == '__main__':
             saveLcdScreenMarked = True
             saveWarpImg = True
             saveLcdInternal = True
+        elif k == ord('d') or k == ord('D'):  # enable draw rectangle around contours
+            drawRect = True
+        elif k == ord('u') or k == ord('U'):  # disable draw rectangle around contours
+            drawRect = False
 
     cv2.destroyAllWindows()
