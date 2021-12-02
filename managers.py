@@ -75,7 +75,7 @@ class WindowManager:
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
-                 compareResultList = [], matchThreshold = 0.99, warpImgSize = (600,600)):
+                 compareResultList = [],  warpImgSize = (600,600)):
         self.logger = logger
         self._capture = cv.VideoCapture(deviceId)
         self._setCaptureResolution(width, height)
@@ -88,7 +88,7 @@ class CaptureManager:
         self._targetFileName = None     # use current frame to  compare with which image file?
         self._enteredFrame = False
         self._compareResultList = compareResultList
-        self._matchThreshold = matchThreshold
+        self._matchThreshold = 0.8
         self._warpImgSize = warpImgSize
 
     def _setCaptureResolution(self,width,height):

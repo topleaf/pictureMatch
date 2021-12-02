@@ -1,6 +1,12 @@
+# image capture and compare with one queryImg using FLANN match
+# feature completed on Dec 1, functionally working.
+# Dec 2, start to get more training pictures, load them in advance, compare all of them
+# with target image to find the most matched one
+
 import cv2 as cv
 import numpy as np
 from cv2 import xfeatures2d
+from os import walk
 
 
 #from filters import SharpenFilter,Embolden5Filter, Embolden3Filter
@@ -36,7 +42,7 @@ def reorder(boxPoints):
     :param boxPoints:
     :return:
     """
-    print('boxPoints shape is {}'.format(boxPoints.shape))
+    # print('boxPoints shape is {}'.format(boxPoints.shape))
     newBox = np.zeros_like(boxPoints)
     boxPoints = boxPoints.reshape((4, 2))
     add = boxPoints.sum(1)  # for each point in boxPoints, make a list of add , which is [x1+y1, x2+y2,x3+y3,x4+y4]
@@ -77,7 +83,8 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
     contours, hierarchy = cv.findContours(imgErode, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     if hierarchy is not None:
-        print('hierarchy shape is {}'.format(hierarchy.shape))
+        # print('hierarchy shape is {}'.format(hierarchy.shape))
+        pass
     finalContours = []
     for c in contours:
         area = cv.contourArea(c)
@@ -104,7 +111,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
 
             # normalize coordinates to integers
             box = np.int0(box)
-            print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
+            # print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
 
             #draw the contour's minAreaRect box in RED
             if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 2)
@@ -145,9 +152,9 @@ def warpImg(img, points, w, h):
     return imgWarp
 
 
-def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=81, threshold_2 = 112,
-               kernelSize = 5, minArea = 25000, maxArea = 29000,
-               windowName = 'find Contours', wP = 600, hP = 600):
+def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=81,
+               threshold_2 = 112, kernelSize = 5, minArea = 25000, maxArea = 29000,
+               windowName = 'find Contours', wP = 600, hP = 600, display=True):
     """
     display windows on screen showing images
     :param originalImg:
@@ -155,6 +162,7 @@ def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=8
     :param save: save to disk or not
     :param wP: width of project size in pixel
     :param hP: height of project size in pixel
+    :param display: show img on screen or not ?
     :return: true, the warped image of ROI, projected to (wP,hP) size coodination
             or False, None  if under this situation, no contours has been found as ROI
     """
@@ -176,14 +184,14 @@ def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=8
     # if draw:
     #     cv.imshow('contours', contours_img)
     #     cv.moveWindow('contours', 10, 400)
-    cv.imshow(windowName, contours_img)
+    if display:cv.imshow(windowName, contours_img)
     if save:
         cv.imwrite(windowName+'.png', contours_img)
     if len(conts) != 0:
         minAreaRectBox = conts[0][2]
         # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
         imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
-        cv.imshow(windowName+' warped_ROI', imgWarp)
+        if display: cv.imshow(windowName+' warped_ROI', imgWarp)
 
         if save:
             cv.imwrite(windowName+'_ROI_found.png', contours_img)
@@ -247,16 +255,17 @@ def matchByTemplate(targetImg, templateImg, matchThreshold=0.9,draw = True,save 
     # self._compareResultList.append(maxval)
 
 
-def matchByORB(img1, img2, maxMatchedCount):
+def matchByORB(img1, img2, maxMatchedCount, display = True):
     """
     use ORB to compare 2 images, give True or False verdict
     requires opencv-contrib-python , to install it , run $ pip install opencv-contrib-python
     :param img1:
     :param img2:
     :param minMatchedCount: draw first maxMatchedCount of keypoints between 2 imgs
-    :return:  True or False
+    :return:  None
     """
-
+    assert img1 is not None
+    assert img2 is not None
     imgTargetGray = img1  #cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
     imgTemplateGray = img2  #cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
 
@@ -268,19 +277,95 @@ def matchByORB(img1, img2, maxMatchedCount):
     matches = bf.match(des1, des2)
     matches = sorted(matches, key=lambda x: x.distance)
     img3 = cv.drawMatches(imgTemplateGray, kp1, imgTargetGray, kp2,  matches[:maxMatchedCount], imgTargetGray, flags=2)
-    cv.imshow('matched window', img3)
-    # sift = cv.xfeatures2d.Sift_Create()
+    if display:
+        cv.imshow('matched window', img3)
 
-    return True
+def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuffix='npy'):
+    """
+    load train Info from specified folder into a dictionary
+    :param folderName: raw image files dirname
+    :param featureFolderName: feature descriptor files dirname
+    :param imgSuffix: image format suffix, eg, jpg,png,jpeg
+    :param descSuffix: descriptor format suffix, 'npy' saved using np.save()
+    :return:  trainInfoDict dictionary, eg trainInfoDict:{
+            'filename1':{'roiFileName':roifilename1,'descriptor': desc1},
+            'filename2':{'roiFileName':roifilename2,'descriptor': desc2},
+            ...
+            }
+
+    """
+    trainInfoDict={}
+    for dirpath, dirname, filenames in walk(folderName):
+        for file in filenames:
+            if file.split('.')[1] == imgSuffix:
+                try:    # get raw image filename
+                    fileId = int(file.split('.')[0])
+                except ValueError:
+                    # this is a ROI image file, create key,items in dictionary
+                    key = file.split('.')[0].split('_')[0]
+                    trainInfoDict[key] = {}
+                    trainInfoDict[key]['roiFileName'] = file
+                else: # raw image file, use its filename as key
+                    pass
+
+    for dirpath, dirname, filenames in walk(featureFolderName):
+        for file in filenames:
+            if file.split('.')[1] == descSuffix:
+                try:    # get filename
+                    fileId = int(file.split('.')[0])
+                except ValueError:
+                    print('invalid npy filename:{}'.format(file))
+                    raise ValueError
+                else: # valid descriptor file, load it to respective key as value
+                    key = file.split('.')[0]
+                    trainInfoDict[key]['descriptor'] = np.load(featureFolderName + file)
+
+    if len(trainInfoDict) == 0:
+        return False, None
+    else:
+        return True, trainInfoDict
 
 
-def matchByFLANN(targetImg, queryImg, minMatchCount):
-    isMatch = False
+def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, minMatchCount = 15):
+    """
+     compare liveImgWarp descriptor with all descriptors in trainImgInfos,
+     return True and the most matched filename in trainImginfos, or False and None
+    :param trainInfoDict:{
+            'filename1':{'roiFileName':roifilename1,'descriptor': desc1},
+            'filename2':{'roiFileName':roifilename2,'descriptor': desc2},
+            ...
+            }
 
+    :param liveImgWarp:
+    :param minMatchCount : minimumMatchedCount, if less than this, not match
+    :return: True,filename or False,None
+    """
+    maxMatchCount = 0
+    matchedName = None
+    for key in trainInfoDict:
+        matchedCount = matchByFLANN(liveImgWarp, trainInfoDict[key]['descriptor'])
+        print('key={},matchedCount={}'.format(key,matchedCount))
+        if matchedCount >= minMatchCount and matchedCount > maxMatchCount:
+            maxMatchCount = matchedCount
+            matchedName = key
+    if matchedName is None:
+        return False, None
+    else:
+        print('maxMatchCount={},{} MATCHED!!'.format(matchedCount, matchedName))
+        return True, matchedName
+
+
+def matchByFLANN(targetImg, queryDescriptor):
+    """
+    compare both descriptors to get length of matched descriptors
+    :param targetImg: warpedImg to be identified
+    :param queryDescriptor:
+    :return: length of matched descriptors
+    """
     # generate both descriptors
     siftFeatureDetector = cv.xfeatures2d.SIFT_create()
     kp1, targetDescriptor = siftFeatureDetector.detectAndCompute(targetImg, None)
-    kp2, queryDescriptor = siftFeatureDetector.detectAndCompute(queryImg, None)
+
 
     # create FLANN matcher
     FLANN_INDEX_KDTREE = 0
@@ -294,12 +379,10 @@ def matchByFLANN(targetImg, queryImg, minMatchCount):
     for m, n in matches:
         if m.distance < 0.7 * n.distance:
             good.append(m)
-    if len(good) >= minMatchCount:
-        print('this is a potential match,matched descriptor number = {}'.format(len(good)))
-        return True
-    else:
-        print('not a match, matched descriptor number is {},less than {}'.format(len(good),minMatchCount))
-        return False
+
+    return len(good)
+
+
 
 cameraResW = 800
 cameraResH = 600
@@ -307,24 +390,31 @@ scale = 2
 wP = 300*scale
 hP = 300*scale
 
+import argparse
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="sample main utility to check lcd ")
+    parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
+    args = parser.parse_args()
+    print(args)
+
     saveImage = False
     drawRect = False
-    targetFileName = 'target_detected.png'
-    target_img = cv.imread(targetFileName)  # original img to be compared # '1_targetROI.png')#('./4.png')
-    camera = cv.VideoCapture(0)
-    camera.set(3,cameraResW)
-    camera.set(4,cameraResH)
+    expectedId = 1  # simulate the id of currently capture image
+    success, queryImgDataBase = loadTrainImgDescriptors(r'./pictures/', r'./features/')
+    if not success:
+        print('training set loading failed, please check they are valid and retry!')
+        exit(-1)
+
+    # targetFileName = 'target_detected.png'
+    # target_img = cv.imread(targetFileName)  # original img to be compared # '1_targetROI.png')#('./4.png')
+    camera = cv.VideoCapture(args.deviceId)
+    camera.set(3, cameraResW)
+    camera.set(4, cameraResH)
     # originalFileName = 'originLiveCapture.png'
 
-    targetFound = True
-    while targetFound:
-        targetFound, imgWarp = isolateROI(target_img, drawRect=drawRect, save=False, blurr_level = 5, threshold_1 =81,
-                                          threshold_2 = 112, kernelSize = 5, minArea = 25000, maxArea = 29000,
-                                          windowName='target')
-        if not targetFound:
-            print('please double check target file {}, make sure parameters are good to detect ROI area inside '.format(targetFileName))
-            break
+    monitor = True
+    while monitor:
         success, live_img = camera.read()
         # the following 2 clause is to try out compare target with 1. exact the same picture or 2. part of the same picture
         # test result shows , under 1, matchTemplate compare maxval is 1. perfect match
@@ -342,30 +432,41 @@ if __name__ == "__main__":
         if not success:
             continue
         liveFound, liveImgWarp = isolateROI(live_img, drawRect=drawRect, save=saveImage, blurr_level = 5, threshold_1 =81,
-                                            threshold_2 = 112, kernelSize = 5, minArea = 25000, maxArea = 29000,
+                                            threshold_2 = 112, kernelSize = 5, minArea = 322, maxArea = 11609,
                                             windowName='live_capture')
-
         if liveFound:
-            result = matchByFLANN(imgWarp,liveImgWarp,minMatchCount = 15)
-            print('match result = {} '.format(result))
+            # result = matchByTemplate(imgWarp, liveImgWarp, matchThreshold=0.8, draw=True, save=saveImage)
+            # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
+            # which is hard in engineering environment, the image captured  by camera are pixel-different even in same environment
+            # in 2 shots
+            result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, minMatchCount = 10)
+            if result:
+                matchedTrainingRoiImg = cv.imread('./pictures/'+
+                                                  queryImgDataBase[matchedFileName]['roiFileName'])
+                matchByORB(matchedTrainingRoiImg, liveImgWarp,
+                           maxMatchedCount=500, display=True)
+                print('expectedId={},matchedFileName={}'.format(expectedId, matchedFileName))
+                if expectedId == matchedFileName.split('.')[0]:
+                    result = True
+                    cv.imshow('matched training sample', matchedTrainingRoiImg)
+                else:
+                    result = False
+                    cv.destroyWindow('matched training sample')
+            else:   # not a match in training sets
+                result = False
+            # print('match result = {} '.format(result))
             markImg = live_img.copy()
-            cv.putText(markImg, (lambda x: 'Pass' if x else 'Fail')(result), (100,100),
-                   cv.FONT_HERSHEY_COMPLEX, 1, (255,0,0), 3)
+            cv.putText(markImg, (lambda x: str(expectedId) + ' Pass' if x
+                                else str(expectedId) + ' Fail')(result), (100,100),
+                                cv.FONT_HERSHEY_COMPLEX, 1, (255, 0, 0), 3)
             cv.imshow('live_capture', markImg)
+
         else:
-            markImg = target_img.copy()
-            cv.putText(markImg, 'Please adjust camera', (100,100),
+            markImg = live_img.copy()
+            cv.putText(markImg, 'Please adjust camera or edge detection para', (10,100),
                        cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
-            cv.imshow('target', markImg)
+            cv.imshow('live_capture', markImg)
 
-
-        # result = matchByORB(imgWarp, liveImgWarp, maxMatchedCount=500)
-
-
-        # result = matchByTemplate(imgWarp, liveImgWarp, matchThreshold=0.8, draw=True, save=saveImage)
-        # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
-        # which is hard in engineering environment, the image captured  by camera are pixel-different even in same environment
-        # in 2 shots
         saveImage = False
 
 
@@ -378,6 +479,8 @@ if __name__ == "__main__":
             drawRect = True
         elif k == ord('u') or k == ord('U'):  # disable draw rectangle around contours
             drawRect = False
+        elif k in range(ord('1'),ord('9'),1): # simulate expected id
+            expectedId = int(chr(k))
 
     cv.destroyAllWindows()
 

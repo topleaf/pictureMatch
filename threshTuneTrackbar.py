@@ -29,7 +29,7 @@ if __name__ == '__main__':
         originalFileName = 'originLiveCapture.png'
 
     else:
-        originalFileName = "target_detected.png"
+        originalFileName = "./pictures/6.png"
         img = cv2.imread(originalFileName)
 
     windowName = 'looking for main Contour image'
@@ -54,10 +54,10 @@ if __name__ == '__main__':
 
     switch = '0 : Origin\n1 : Gray\n2 : blur\n 3: Canny\n 4: dilate\n 5:erode\n 6:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
-    cv2.setTrackbarPos(switch, windowName, 0)
+    cv2.setTrackbarPos(switch, windowName, 6)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    cv2.setTrackbarPos(tbMinArea, windowName, 25000)
-    cv2.setTrackbarPos(tbMaxArea, windowName, 29112)
+    cv2.setTrackbarPos(tbMinArea, windowName, 322)
+    cv2.setTrackbarPos(tbMaxArea, windowName, 72139)
     cv2.setTrackbarPos(tbCannyThr1, windowName, 81)
     cv2.setTrackbarPos(tbCannyThr2, windowName, 112)
     kernel = np.ones((5, 5))
