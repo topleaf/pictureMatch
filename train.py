@@ -70,18 +70,19 @@ class BuildDatabase(object):
 
     def _generateWarpImagesAndDescriptors(self):
         files = []
-        for (dirPath, dirName, fileNames) in walk(self._folderName):
-            files.extend(fileNames)
-        for file in files:      # only keep files with required extension name
-            if file.split('.')[1] not in [self._imgFormat]:
-                files.remove(file)
+        for (dirPath, dirNames, fileNames) in walk(self._folderName):
+            pass
+            # files.extend(fileNames)
+        for file in fileNames:      # only keep files with required extension name
+            if file.split('.')[1] in [self._imgFormat]:
+                files.append(file)
 
-        for fileName in fileNames:
+        for fileName in files:
             fullPath = self._folderName + '/' + fileName
             rawImg = cv.imread(fullPath)
             retval, warpImg = isolateROI(rawImg, drawRect = False, save = False, blurr_level = 5,
-                       threshold_1=81, threshold_2=112,
-                   kernelSize=5, minArea = 322, maxArea = 72139,
+                       threshold_1=86, threshold_2=245,
+                   kernelSize=5, minArea = 50000, maxArea = 78773,
                    windowName='find Contours', wP= self._warpImgWP,
                        hP=self._warpImgHP, display=False)
             if retval:
@@ -104,7 +105,7 @@ class BuildDatabase(object):
             else:
                 self.logger.error('ROI not detected in file {}, please adjust camera or tune parameters '
                                   'and retry again!!'.format(fullPath))
-                raise ValueError
+                # raise ValueError
 
 
 
@@ -196,7 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("--folder", dest='folder',help='folder name to store training image files', default= "./pictures", type=str)
     parser.add_argument("--featureFolder", dest='featureFolder',help='folder name to store image feature files', default ='./features', type=str)
     parser.add_argument("--imageFormat", dest='imageFormat',help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
-    parser.add_argument("--skipCapture", dest='skipCapture',help='do not overwrite existing image files [0,1]', default = True, type=bool)
+    parser.add_argument("--skipCapture", dest='skipCapture',help='do not overwrite existing image files [0,1]', default = True, type=int)
 
     args = parser.parse_args()
 
@@ -211,7 +212,7 @@ if __name__ == "__main__":
 
 
     solution = BuildDatabase(logger, "build database", args.deviceId,
-                             range(1, 13, 1), args.portId, args.duration,
+                             range(1, 21, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              skipCapture=args.skipCapture)

@@ -54,6 +54,101 @@ def reorder(boxPoints):
     return newBox
 
 
+# find 4 corners that are closed graph with minArea,cornerNumber
+def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,kernel,
+                        blockSize=2,ksize=3,k=0.04,
+                        draw=True, needPreProcess=True):
+    """
+
+    :param img: original image
+    :param blurr_level: kernel size for GaussianBlur
+    :param threshold_1: canny threshold 1
+    :param threshold_2: canny threshold 2
+    :param kernel:  dilate and erode kernel
+    :param draw:  draw a rectangle around detected contour  or not ?
+    :return: img , list of satisfactory contours_related info (area, approx, boundingbox )
+    """
+    if needPreProcess:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+        imgCanny = cv.Canny(blur, threshold_1,threshold_2)
+        imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
+        imgErode = cv.erode(imgDilate, kernel, iterations=3)
+    else:
+        imgErode = img
+
+    grayf32 = np.float32(imgErode)
+    dst = cv.cornerHarris(grayf32, blockSize=blockSize, ksize=ksize, k=k)
+
+    if dst is None:
+        return False,None
+
+    dst = cv.dilate(dst, None)
+    ret, dst = cv.threshold(dst, 0.01*dst.max(), 255, 0)
+    dst = np.uint8(dst)
+
+    # find centroids
+    ret, labels, stats, centroids = cv.connectedComponentsWithStats(dst)
+    # define the criteria to stop and refine the corners
+    criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+    corners = cv.cornerSubPix(grayf32,np.float32(centroids),(5,5),(-1,-1),criteria)
+    # Now draw them
+    res = np.hstack((centroids,corners))
+    res = np.int0(res)
+    if draw:
+        img[res[:,1],res[:,0]]=[0,0,255]
+        img[res[:,3],res[:,2]] = [0,255,0]
+        # cv.imwrite('subpixel5.png', img)
+
+    #
+    points = reorder((res[:,1], res[:,0]))
+    finalContours = []
+    # for c in contours:
+    #     area = cv.contourArea(c)
+    #     peri = cv.arcLength(c, True)
+    #     approx = cv.approxPolyDP(c, 0.01*peri, True)
+    #
+    #     # reorder approximate points array in the  order of
+    #     # 1(topleft),2(topright),3(bottomleft),4(bottomright)
+    #
+    #     if area <= maxArea and area >= minArea and len(approx) >= cornerNumber:
+    #         #find approx bounding box coordinates, and draw it in Green
+    #         x,y,w,h = cv.boundingRect(c)
+    #         # if draw:
+    #         # cv.rectangle(img, (x,y),(x+w,y+h),(0,255,0), 2)
+    #         # cv.putText(img,"area={:.1f}".format(area),(x,y+30),
+    #         #            cv.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0),2)
+    #
+    #         # bbox = cv.boundingRect(approx)
+    #         #find minimum area of the contour
+    #         rect = cv.minAreaRect(approx)
+    #         # (x,y),(w,h) ,angle = rect    x,y is the center, w is width, h is height of the round rectangle
+    #         # calculate coordinates of the minimum area rectangle
+    #         box = cv.boxPoints(rect)
+    #
+    #         # normalize coordinates to integers
+    #         box = np.int0(box)
+    #         # print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
+    #
+    #         #draw the contour's minAreaRect box in RED
+    #         if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 2)
+    #
+    #         finalContours.append((area, approx, box))
+    #         # # calculate center and radius of minimum enclosing circle
+    #         # (x,y),r = cv.minEnclosingCircle(c)
+    #         # # cast to integers
+    #         # center = (int(x),int(y))
+    #         # radius = int(r)
+    #         # # draw minEnclosingCircle in blue
+    #         # cv.circle(img, center, radius, (255, 0, 0), 2)
+    #
+    # # cv.imshow(windowName, img)
+    # # sort the list by contour's area, so that the larger contours are in the first
+    # finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
+    # finalContours.append((200, approx, box))
+    return img, finalContours
+
+
 # find contours that  are closed graph with minArea,cornerNumber
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
@@ -344,14 +439,14 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, minMatchCount = 15):
     matchedName = None
     for key in trainInfoDict:
         matchedCount = matchByFLANN(liveImgWarp, trainInfoDict[key]['descriptor'])
-        print('key={},matchedCount={}'.format(key,matchedCount))
-        if matchedCount >= minMatchCount and matchedCount > maxMatchCount:
+        print('key={},matchedCount={},maxMatchCount={}'.format(key,matchedCount,maxMatchCount))
+        if matchedCount >= minMatchCount and matchedCount >= maxMatchCount:
             maxMatchCount = matchedCount
             matchedName = key
     if matchedName is None:
         return False, None
     else:
-        print('maxMatchCount={},{} MATCHED!!'.format(matchedCount, matchedName))
+        print('maxMatchCount={}, sample {} MATCHED!!'.format(maxMatchCount, matchedName))
         return True, matchedName
 
 
@@ -390,32 +485,41 @@ scale = 2
 wP = 300*scale
 hP = 300*scale
 
-import argparse
+import argparse,os.path
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="sample main utility to check lcd ")
+    parser = argparse.ArgumentParser(description="sample main utility to check lcd display")
     parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
+    parser.add_argument("--liveMode", dest='webCamera', help='use camera to capture (1) or simulate (0)', default=1, type=int)
     args = parser.parse_args()
     print(args)
 
     saveImage = False
     drawRect = False
-    expectedId = 1  # simulate the id of currently capture image
+    liveCaptureWindowName = 'live_capture'
+    expectedId = 18  # simulate the id of currently capture image
     success, queryImgDataBase = loadTrainImgDescriptors(r'./pictures/', r'./features/')
     if not success:
         print('training set loading failed, please check they are valid and retry!')
         exit(-1)
 
-    # targetFileName = 'target_detected.png'
-    # target_img = cv.imread(targetFileName)  # original img to be compared # '1_targetROI.png')#('./4.png')
     camera = cv.VideoCapture(args.deviceId)
     camera.set(3, cameraResW)
     camera.set(4, cameraResH)
     # originalFileName = 'originLiveCapture.png'
 
     monitor = True
+    if args.webCamera == 0:
+        live_img = cv.imread(os.path.join('./pictures/', '9.png'))
+        if live_img is not None:
+            success = True
+            liveCaptureWindowName += ' (playback mode)'
+
     while monitor:
-        success, live_img = camera.read()
+        if args.webCamera == 1:
+            success, live_img = camera.read()
+
+
         # the following 2 clause is to try out compare target with 1. exact the same picture or 2. part of the same picture
         # test result shows , under 1, matchTemplate compare maxval is 1. perfect match
         #  under 2, matchTemplate compare maxval is 0.68,  the reason are in this situation,
@@ -432,8 +536,8 @@ if __name__ == "__main__":
         if not success:
             continue
         liveFound, liveImgWarp = isolateROI(live_img, drawRect=drawRect, save=saveImage, blurr_level = 5, threshold_1 =81,
-                                            threshold_2 = 112, kernelSize = 5, minArea = 322, maxArea = 11609,
-                                            windowName='live_capture')
+                                            threshold_2 = 112, kernelSize = 5, minArea = 50000, maxArea = 99502,
+                                            windowName=liveCaptureWindowName)
         if liveFound:
             # result = matchByTemplate(imgWarp, liveImgWarp, matchThreshold=0.8, draw=True, save=saveImage)
             # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
@@ -441,31 +545,38 @@ if __name__ == "__main__":
             # in 2 shots
             result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, minMatchCount = 10)
             if result:
-                matchedTrainingRoiImg = cv.imread('./pictures/'+
+                matchedTrainingRoiImg = cv.imread('./pictures/' +
                                                   queryImgDataBase[matchedFileName]['roiFileName'])
                 matchByORB(matchedTrainingRoiImg, liveImgWarp,
-                           maxMatchedCount=500, display=True)
-                print('expectedId={},matchedFileName={}'.format(expectedId, matchedFileName))
-                if expectedId == matchedFileName.split('.')[0]:
+                           maxMatchedCount=500, display=True)       # draw matching points between 2,visualize them
+                verdict = 'expected={}, matched={} '.format(expectedId, matchedFileName)
+                print(verdict)
+                cv.putText(matchedTrainingRoiImg,"sample id: " + matchedFileName,(10,500),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)
+                cv.imshow('matched training sample', matchedTrainingRoiImg)
+
+                if expectedId == int(matchedFileName.split('.')[0]):
                     result = True
-                    cv.imshow('matched training sample', matchedTrainingRoiImg)
                 else:
                     result = False
-                    cv.destroyWindow('matched training sample')
             else:   # not a match in training sets
+                verdict = 'expected={}, no match '.format(expectedId)
                 result = False
             # print('match result = {} '.format(result))
             markImg = live_img.copy()
-            cv.putText(markImg, (lambda x: str(expectedId) + ' Pass' if x
-                                else str(expectedId) + ' Fail')(result), (100,100),
-                                cv.FONT_HERSHEY_COMPLEX, 1, (255, 0, 0), 3)
-            cv.imshow('live_capture', markImg)
+            if result:
+                cv.putText(markImg, verdict + ' Pass', (10,500),
+                                    cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)
+            else:
+                cv.putText(markImg, verdict + ' Fail', (10,500),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
+            cv.imshow(liveCaptureWindowName, markImg)
 
         else:
             markImg = live_img.copy()
             cv.putText(markImg, 'Please adjust camera or edge detection para', (10,100),
                        cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
-            cv.imshow('live_capture', markImg)
+            cv.imshow(liveCaptureWindowName, markImg)
 
         saveImage = False
 

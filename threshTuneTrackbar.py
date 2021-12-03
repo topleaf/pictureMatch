@@ -56,10 +56,10 @@ if __name__ == '__main__':
     cv2.createTrackbar(switch, windowName, 0, 6, func)
     cv2.setTrackbarPos(switch, windowName, 6)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    cv2.setTrackbarPos(tbMinArea, windowName, 322)
-    cv2.setTrackbarPos(tbMaxArea, windowName, 72139)
-    cv2.setTrackbarPos(tbCannyThr1, windowName, 81)
-    cv2.setTrackbarPos(tbCannyThr2, windowName, 112)
+    cv2.setTrackbarPos(tbMinArea, windowName, 50000)
+    cv2.setTrackbarPos(tbMaxArea, windowName, 78773)
+    cv2.setTrackbarPos(tbCannyThr1, windowName, 86)
+    cv2.setTrackbarPos(tbCannyThr2, windowName, 245)
     kernel = np.ones((5, 5))
     while(1):
         if webCam:
