@@ -22,6 +22,7 @@
 import cv2
 import numpy as np
 from edgeDetect import warpImg,getRequiredContoursByHarrisCorner
+import argparse
 
 def func(x):
     pass
@@ -35,15 +36,19 @@ hP = 300*scale
 
 
 if __name__ == '__main__':
-    webCam = True
-    if webCam:
+    parser = argparse.ArgumentParser(description="utility to tune thresholds")
+    parser.add_argument("--liveMode", dest='webCam', help='use camera to capture (1) or simulate (0)', default=1, type=int)
+    args = parser.parse_args()
+    print(args)
+
+    if args.webCam:
         camera = cv2.VideoCapture(0)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
         originalFileName = 'originLiveCapture.png'
 
     else:
-        originalFileName = "./pictures/1.png"
+        originalFileName = "./bak_pictures/chessboard.jpg"
         img = cv2.imread(originalFileName)
 
     windowName = 'looking for main Contour image by corner detection '
@@ -58,7 +63,7 @@ if __name__ == '__main__':
     tbHarrisBlockSize = 'Harris BlockSize'
     tbHarrisKSize = "Harris KSize"
     tbHarrisK = 'Harris K'
-    cv2.createTrackbar(tbHarrisBlockSize, windowName, 2, 100, func)
+    cv2.createTrackbar(tbHarrisBlockSize, windowName, 2, 50, func)
     cv2.createTrackbar(tbHarrisKSize, windowName, 2, 31, func)
     cv2.createTrackbar(tbHarrisK, windowName, 1, 100, func)
 
@@ -89,7 +94,7 @@ if __name__ == '__main__':
 
     kernel = np.ones((5, 5))
     while(1):
-        if webCam:
+        if args.webCam:
             success, img = camera.read()
             if not success:
                 break
@@ -103,6 +108,8 @@ if __name__ == '__main__':
         s = cv2.getTrackbarPos(switch, windowName)
 
         harrisBlkSize = cv2.getTrackbarPos(tbHarrisBlockSize, windowName)
+        if harrisBlkSize in [0, 1]:
+            harrisBlkSize = 2
         harrisKSize = cv2.getTrackbarPos(tbHarrisKSize, windowName)
         harrisKSize = (lambda x: x+1 if x % 2 == 0 else x)(harrisKSize)    # avoid even
         harrisK = cv2.getTrackbarPos(tbHarrisK, windowName)*0.01

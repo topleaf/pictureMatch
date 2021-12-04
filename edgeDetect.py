@@ -81,7 +81,11 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
     dst = cv.cornerHarris(grayf32, blockSize=blockSize, ksize=ksize, k=k)
 
     if dst is None:
-        return False,None
+        return False, None
+    finalContours = []
+    img[dst > 0.01*dst.max()] = [0,0,255]
+
+    return img, finalContours
 
     dst = cv.dilate(dst, None)
     ret, dst = cv.threshold(dst, 0.01*dst.max(), 255, 0)
@@ -101,8 +105,8 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
         # cv.imwrite('subpixel5.png', img)
 
     #
-    points = reorder((res[:,1], res[:,0]))
-    finalContours = []
+    # points = reorder((res[:,1], res[:,0]))
+
     # for c in contours:
     #     area = cv.contourArea(c)
     #     peri = cv.arcLength(c, True)
@@ -264,6 +268,7 @@ def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=8
 
     if img is None:
         print('img is None')
+        return False, None
         raise ValueError
     # print('the original picture shape is {}'.format(img.shape))
 
@@ -361,19 +366,23 @@ def matchByORB(img1, img2, maxMatchedCount, display = True):
     """
     assert img1 is not None
     assert img2 is not None
-    imgTargetGray = img1  #cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
+    imgQueryGray = img1  #cv.cvtColor(img1, cv.COLOR_BGR2GRAY)
     imgTemplateGray = img2  #cv.cvtColor(img2, cv.COLOR_BGR2GRAY)
 
 
     orb = cv.ORB_create()
     kp1, des1 = orb.detectAndCompute(imgTemplateGray, None)
-    kp2, des2 = orb.detectAndCompute(imgTargetGray, None)
+    kp2, des2 = orb.detectAndCompute(imgQueryGray, None)
     bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
     matches = bf.match(des1, des2)
     matches = sorted(matches, key=lambda x: x.distance)
-    img3 = cv.drawMatches(imgTemplateGray, kp1, imgTargetGray, kp2,  matches[:maxMatchedCount], imgTargetGray, flags=2)
+    img3 = cv.drawMatches(imgTemplateGray, kp1, imgQueryGray, kp2,  matches[:maxMatchedCount], imgQueryGray, flags=2)
+    img4 = cv.drawKeypoints(image=imgQueryGray, outImage=imgQueryGray, keypoints=kp2, flags=4,color=(51,163,236))
+    img5 = cv.drawKeypoints(image=imgTemplateGray, outImage=imgTemplateGray, keypoints=kp1, flags=4,color=(51,163,236))
     if display:
         cv.imshow('matched window', img3)
+        cv.imshow('query keypoints',img4)
+        cv.imshow('template keypoints',img5)
 
 def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuffix='npy'):
     """
@@ -398,8 +407,13 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
                 except ValueError:
                     # this is a ROI image file, create key,items in dictionary
                     key = file.split('.')[0].split('_')[0]
-                    trainInfoDict[key] = {}
-                    trainInfoDict[key]['roiFileName'] = file
+                    try:   # only digit accepted
+                        n = int(key)
+                    except ValueError:
+                        print('ignore non-number image files')
+                    else:
+                        trainInfoDict[key] = {}
+                        trainInfoDict[key]['roiFileName'] = file
                 else: # raw image file, use its filename as key
                     pass
 
@@ -409,8 +423,8 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
                 try:    # get filename
                     fileId = int(file.split('.')[0])
                 except ValueError:
-                    print('invalid npy filename:{}'.format(file))
-                    raise ValueError
+                        print('ignore non-number featureDescriptor file:{}'.format(file))
+                        print('invalid npy filename:{}'.format(file))
                 else: # valid descriptor file, load it to respective key as value
                     key = file.split('.')[0]
                     trainInfoDict[key]['descriptor'] = np.load(featureFolderName + file)
@@ -421,9 +435,9 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
         return True, trainInfoDict
 
 
-def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, minMatchCount = 15):
+def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display):
     """
-     compare liveImgWarp descriptor with all descriptors in trainImgInfos,
+     compare liveImgWarp descriptor with descriptors in trainImgInfos by the key of expectedId,
      return True and the most matched filename in trainImginfos, or False and None
     :param trainInfoDict:{
             'filename1':{'roiFileName':roifilename1,'descriptor': desc1},
@@ -432,50 +446,81 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, minMatchCount = 15):
             }
 
     :param liveImgWarp:
-    :param minMatchCount : minimumMatchedCount, if less than this, not match
+    :param expectedId : in str, the id of expected image
+    :param display: True/False
     :return: True,filename or False,None
     """
-    maxMatchCount = 0
+    try:
+        expectedTrainingRoiImg = cv.imread(trainingPicsFolderName +
+                                      queryImgDataBase[expectedId]['roiFileName'])
+    except KeyError as e:
+        print(e)
+        print('above training image is not available, please redo training.')
+        return False,None
+
     matchedName = None
-    for key in trainInfoDict:
-        matchedCount = matchByFLANN(liveImgWarp, trainInfoDict[key]['descriptor'])
-        print('key={},matchedCount={},maxMatchCount={}'.format(key,matchedCount,maxMatchCount))
-        if matchedCount >= minMatchCount and matchedCount >= maxMatchCount:
-            maxMatchCount = matchedCount
-            matchedName = key
+    matchedCount, liveDescriptorNum, queryDescriptorNum =\
+        matchByFLANN(liveImgWarp, expectedTrainingRoiImg,
+                     trainInfoDict[expectedId]['descriptor'], display)
+    print('key={},matchedCount={},liveDesNum={},queryDesNum={}'.format(
+        expectedId, matchedCount,liveDescriptorNum,queryDescriptorNum))
+    # all keypoints descriptors must be the same and the number of keypoints must be same
+    if matchedCount == liveDescriptorNum and matchedCount == queryDescriptorNum:
+            matchedName = expectedId
     if matchedName is None:
         return False, None
     else:
-        print('maxMatchCount={}, sample {} MATCHED!!'.format(maxMatchCount, matchedName))
+        print('sample {} MATCHED!!'.format(matchedName))
         return True, matchedName
 
 
-def matchByFLANN(targetImg, queryDescriptor):
+def matchByFLANN(targetImg, trainingImg, queryDescriptor, display):
     """
     compare both descriptors to get length of matched descriptors
     :param targetImg: warpedImg to be identified
+    :param trainingImg: expectImg in training sets to be compared with
     :param queryDescriptor:
-    :return: length of matched descriptors
+    :param display : True/False,
+    :return: length of matched descriptors, targetImgDescriptorNum,queryImgDescriptorNum
     """
     # generate both descriptors
     siftFeatureDetector = cv.xfeatures2d.SIFT_create()
     kp1, targetDescriptor = siftFeatureDetector.detectAndCompute(targetImg, None)
+    kp2, trainingDescriptor = siftFeatureDetector.detectAndCompute(trainingImg, None)
 
 
     # create FLANN matcher
     FLANN_INDEX_KDTREE = 0
     indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
     searchParams = dict(checks=50)
-    flann = cv.FlannBasedMatcher(indexParams,searchParams)
+
+    flann = cv.FlannBasedMatcher(indexParams, searchParams)
 
     # try knnMatch
-    matches = flann.knnMatch(queryDescriptor, targetDescriptor, k=2)
+    matches = flann.knnMatch(targetDescriptor, trainingDescriptor, k=2)
+    # prepare an empty mask to draw good matches
+    matchesMask = [[0, 0] for i in range(len(matches))]
+
+    #David G. Lowe's ratio test, populate the mask
     good = []
-    for m, n in matches:
+    for i, (m, n) in enumerate(matches):
         if m.distance < 0.7 * n.distance:
+            matchesMask[i] = [1, 0]
             good.append(m)
 
-    return len(good)
+    if display:
+        drawParams = dict(matchColor = (0,255,0), singlePointColor = (255,0,0),
+                          matchesMask = matchesMask,
+                          flags = 0)
+        resultImage = cv.drawMatchesKnn(targetImg, kp1, trainingImg, kp2,
+                                        matches, None, **drawParams)
+        img4 = cv.drawKeypoints(image=trainingImg, outImage=trainingImg, keypoints=kp2, flags=4,color=(51,163,236))
+        img5 = cv.drawKeypoints(image=targetImg, outImage=targetImg, keypoints=kp1, flags=4, color=(51,163,236))
+        cv.imshow('training keypoints', img4)
+        cv.imshow('liveImg keypoints', img5)
+        cv.imshow('comparing with training image(at right)', resultImage)
+
+    return len(good), targetDescriptor.shape[0], queryDescriptor.shape[0]
 
 
 
@@ -497,8 +542,13 @@ if __name__ == "__main__":
     saveImage = False
     drawRect = False
     liveCaptureWindowName = 'live_capture'
-    expectedId = 18  # simulate the id of currently capture image
-    success, queryImgDataBase = loadTrainImgDescriptors(r'./pictures/', r'./features/')
+    trainingPicsFolderName = r'./pictures/'
+    trainingFeaturesFolderName =  r'./features/'
+    expectedId = 6  # simulate the id of currently capture image
+    playbackId = 15   # simulate playback image id
+    reloadNeeded = False  # simulate playback image file reload if file changes
+    success, queryImgDataBase = loadTrainImgDescriptors(trainingPicsFolderName,
+                                                        trainingFeaturesFolderName)
     if not success:
         print('training set loading failed, please check they are valid and retry!')
         exit(-1)
@@ -508,16 +558,19 @@ if __name__ == "__main__":
     camera.set(4, cameraResH)
     # originalFileName = 'originLiveCapture.png'
 
+    live_img = cv.imread(os.path.join(trainingPicsFolderName, '15.png'))
     monitor = True
-    if args.webCamera == 0:
-        live_img = cv.imread(os.path.join('./pictures/', '9.png'))
-        if live_img is not None:
-            success = True
-            liveCaptureWindowName += ' (playback mode)'
-
     while monitor:
         if args.webCamera == 1:
             success, live_img = camera.read()
+        else:
+            if reloadNeeded:
+                live_img = cv.imread(os.path.join(trainingPicsFolderName, str(playbackId)+'.png'))
+                reloadNeeded = False
+
+            if live_img is not None:
+                success = True
+                liveCaptureWindowName = 'live_capture (playback mode)'
 
 
         # the following 2 clause is to try out compare target with 1. exact the same picture or 2. part of the same picture
@@ -543,26 +596,21 @@ if __name__ == "__main__":
             # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
             # which is hard in engineering environment, the image captured  by camera are pixel-different even in same environment
             # in 2 shots
-            result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, minMatchCount = 10)
+            result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, str(expectedId), display=True)
             if result:
-                matchedTrainingRoiImg = cv.imread('./pictures/' +
+                matchedTrainingRoiImg = cv.imread(trainingPicsFolderName +
                                                   queryImgDataBase[matchedFileName]['roiFileName'])
-                matchByORB(matchedTrainingRoiImg, liveImgWarp,
-                           maxMatchedCount=500, display=True)       # draw matching points between 2,visualize them
+                # matchByORB(matchedTrainingRoiImg, liveImgWarp,
+                #            maxMatchedCount=500, display=True)       # draw matching points between 2,visualize them
                 verdict = 'expected={}, matched={} '.format(expectedId, matchedFileName)
                 print(verdict)
                 cv.putText(matchedTrainingRoiImg,"sample id: " + matchedFileName,(10,500),
                            cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)
                 cv.imshow('matched training sample', matchedTrainingRoiImg)
-
-                if expectedId == int(matchedFileName.split('.')[0]):
-                    result = True
-                else:
-                    result = False
             else:   # not a match in training sets
                 verdict = 'expected={}, no match '.format(expectedId)
-                result = False
-            # print('match result = {} '.format(result))
+                cv.destroyWindow('matched training sample')
+
             markImg = live_img.copy()
             if result:
                 cv.putText(markImg, verdict + ' Pass', (10,500),
@@ -571,12 +619,16 @@ if __name__ == "__main__":
                 cv.putText(markImg, verdict + ' Fail', (10,500),
                            cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
             cv.imshow(liveCaptureWindowName, markImg)
-
         else:
-            markImg = live_img.copy()
-            cv.putText(markImg, 'Please adjust camera or edge detection para', (10,100),
-                       cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
-            cv.imshow(liveCaptureWindowName, markImg)
+            try:
+                markImg = live_img.copy()
+            except AttributeError as e:
+                print('warning: empty raw live_img file specified')
+                print(e)
+            else:
+                cv.putText(markImg, 'Please adjust camera or edge detection para', (10,100),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 3)
+                cv.imshow(liveCaptureWindowName, markImg)
 
         saveImage = False
 
@@ -590,8 +642,13 @@ if __name__ == "__main__":
             drawRect = True
         elif k == ord('u') or k == ord('U'):  # disable draw rectangle around contours
             drawRect = False
-        elif k in range(ord('1'),ord('9'),1): # simulate expected id
+        elif k in range(ord('0'), ord('9'), 1): # simulate expected id
             expectedId = int(chr(k))
-
+        elif k == ord('n') or k == ord('N'):  # simulate load next playback id image
+            playbackId += 1
+            reloadNeeded = True
+        elif k == ord('b') or k == ord('B'):  # simulate load previous playback id image
+            playbackId -= 1
+            reloadNeeded = True
     cv.destroyAllWindows()
 

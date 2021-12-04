@@ -82,7 +82,7 @@ class BuildDatabase(object):
             rawImg = cv.imread(fullPath)
             retval, warpImg = isolateROI(rawImg, drawRect = False, save = False, blurr_level = 5,
                        threshold_1=86, threshold_2=245,
-                   kernelSize=5, minArea = 50000, maxArea = 78773,
+                   kernelSize=5, minArea = 50000, maxArea = 78773, #120000,
                    windowName='find Contours', wP= self._warpImgWP,
                        hP=self._warpImgHP, display=False)
             if retval:
@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
 
     solution = BuildDatabase(logger, "build database", args.deviceId,
-                             range(1, 21, 1), args.portId, args.duration,
+                             range(1, 60, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              skipCapture=args.skipCapture)
