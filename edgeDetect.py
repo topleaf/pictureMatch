@@ -156,7 +156,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 # find contours that  are closed graph with minArea,cornerNumber
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
-                        draw=True, needPreProcess=True):
+                        draw=True, returnErodeImage =True):
     """
 
     :param img: original image
@@ -168,16 +168,15 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
     :param maxArea:  contour has smaller area than this maximum area
     :param cornerNumber:  contour has corners number that are larger than this
     :param draw:  draw a rectangle around detected contour  or not ?
-    :return: img , list of satisfactory contours_related info (area, approx, boundingbox )
+    :return: blurred  img , list of satisfactory contours_related info
+            (area, approx, boundingbox ), original image
     """
-    if needPreProcess:
-        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-        blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-        imgCanny = cv.Canny(blur, threshold_1,threshold_2)
-        imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
-        imgErode = cv.erode(imgDilate, kernel, iterations=3)
-    else:
-        imgErode = img
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    # blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+    blur = cv.blur(gray,(blurr_level,blurr_level))
+    imgCanny = cv.Canny(blur, threshold_1,threshold_2)
+    imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
+    imgErode = cv.erode(imgDilate, kernel, iterations=2)
 
     contours, hierarchy = cv.findContours(imgErode, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
@@ -213,7 +212,8 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
             # print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
 
             #draw the contour's minAreaRect box in RED
-            if draw: cv.drawContours(img, [box], 0, (0, 0, 255), 2)
+            if draw:
+                cv.drawContours(img, [box], 0, (0, 0, 255), 2)
 
             finalContours.append((area, approx, box))
             # # calculate center and radius of minimum enclosing circle
@@ -227,7 +227,10 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
     # cv.imshow(windowName, img)
     # sort the list by contour's area, so that the larger contours are in the first
     finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
-    return img, finalContours
+    if returnErodeImage:
+        return imgErode, finalContours, img
+    else:
+        return blur, finalContours, img
 
 
 def warpImg(img, points, w, h):
@@ -251,12 +254,12 @@ def warpImg(img, points, w, h):
     return imgWarp
 
 
-def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=81,
-               threshold_2 = 112, kernelSize = 5, minArea = 25000, maxArea = 29000,
+def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=36,
+               threshold_2 = 130, kernelSize = 5, minArea = 25000, maxArea = 29000,
                windowName = 'find Contours', wP = 600, hP = 600, display=True):
     """
     display windows on screen showing images
-    :param originalImg:
+    :param img: original raw image
     :param draw: draw rectangle around detected object or not
     :param save: save to disk or not
     :param wP: width of project size in pixel
@@ -274,30 +277,34 @@ def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=8
 
     kernel = np.ones((kernelSize, kernelSize))
     contours_img = img.copy()
-    contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+    blurred_img, conts , contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
                                               kernel,
                                               minArea=minArea, maxArea=maxArea,
-                                              cornerNumber=4, draw=drawRect)
+                                              cornerNumber=4, draw=drawRect,
+                                              returnErodeImage=True)
+    # do NOT look for  contour within interested area, and warp
+    # because edgeDetection under live camera is not stable.
+    return True, blurred_img
     # print('found satisfactory contours: {}'.format(conts))
 
     # cv.drawContours(img, contours, -1, (0,255,0), 2)
     # if draw:
     #     cv.imshow('contours', contours_img)
     #     cv.moveWindow('contours', 10, 400)
-    if display:cv.imshow(windowName, contours_img)
+    if display: cv.imshow(windowName, contours_img)
     if save:
         cv.imwrite(windowName+'.png', contours_img)
     if len(conts) != 0:
         minAreaRectBox = conts[0][2]
-        # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-        imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
+        # project the lcd screen after blur to (wP,hP) size, make a imgWarp for the next step
+        imgWarp = warpImg(blurred_img, minAreaRectBox, wP, hP)
         if display: cv.imshow(windowName+' warped_ROI', imgWarp)
 
         if save:
             cv.imwrite(windowName+'_ROI_found.png', contours_img)
             cv.imwrite(windowName+'_warped_ROI.png', imgWarp)
 
-        return True, imgWarp  # return warped image
+        return True, imgWarp  # return blurred warped image
     else:
         return False, None      #  not found
 
@@ -435,7 +442,7 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
         return True, trainInfoDict
 
 
-def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display):
+def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display,sy,ey,sx,ex):
     """
      compare liveImgWarp descriptor with descriptors in trainImgInfos by the key of expectedId,
      return True and the most matched filename in trainImginfos, or False and None
@@ -445,7 +452,7 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display):
             ...
             }
 
-    :param liveImgWarp:
+    :param liveImgWarp:  blurred live warped image
     :param expectedId : in str, the id of expected image
     :param display: True/False
     :return: True,filename or False,None
@@ -459,13 +466,23 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display):
         return False,None
 
     matchedName = None
-    matchedCount, liveDescriptorNum, queryDescriptorNum =\
-        matchByFLANN(liveImgWarp, expectedTrainingRoiImg,
-                     trainInfoDict[expectedId]['descriptor'], display)
-    print('key={},matchedCount={},liveDesNum={},queryDesNum={}'.format(
-        expectedId, matchedCount,liveDescriptorNum,queryDescriptorNum))
+    matchedCount, liveDescriptorNum, trainingDescriptorNum =\
+        matchByFLANN(liveImgWarp, expectedTrainingRoiImg,expectedId,
+                      display,sy,ey,sx,ex)
+
     # all keypoints descriptors must be the same and the number of keypoints must be same
-    if matchedCount == liveDescriptorNum and matchedCount == queryDescriptorNum:
+    #  too strict
+    # if matchedCount == liveDescriptorNum and matchedCount == trainingDescriptorNum:
+
+    minDesNum = min(liveDescriptorNum,trainingDescriptorNum)
+    maxDesNum = max(liveDescriptorNum,trainingDescriptorNum)
+    descNumDiffPer = (maxDesNum-minDesNum)/minDesNum
+    matchedPerc = matchedCount/minDesNum
+    print('key={},matchedCount={},liveDesNum={},trainingDesNum={},descNumDiffPer={:.2f},'
+          'matchedPerc ={:.2f}'.format(
+        expectedId, matchedCount,liveDescriptorNum,trainingDescriptorNum,
+        descNumDiffPer,matchedPerc))
+    if descNumDiffPer <= 0.34 and matchedPerc >= 0.80:
             matchedName = expectedId
     if matchedName is None:
         return False, None
@@ -474,19 +491,35 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display):
         return True, matchedName
 
 
-def matchByFLANN(targetImg, trainingImg, queryDescriptor, display):
+def matchByFLANN(targetImg, trainingImg, trainingId, display,sy,ey,sx,ex):
     """
     compare both descriptors to get length of matched descriptors
     :param targetImg: warpedImg to be identified
     :param trainingImg: expectImg in training sets to be compared with
-    :param queryDescriptor:
+    :param trainingId: training img's unique id in str
     :param display : True/False,
+    :param sy,ey: start/end pixel position of interest ROI left
+    :param sx,ex: start/end pixel position of interest ROI top
     :return: length of matched descriptors, targetImgDescriptorNum,queryImgDescriptorNum
     """
-    # generate both descriptors
+
+    # set up a mask to select interested zone only
+    interestedMask = np.zeros((trainingImg.shape[0], trainingImg.shape[1]), np.uint8)
+    interestedMask[sy:ey, sx:ex] = np.uint8(255)
+    cv.imshow('mask',interestedMask)
+
+    # generate both descriptors within interestedMask range
     siftFeatureDetector = cv.xfeatures2d.SIFT_create()
-    kp1, targetDescriptor = siftFeatureDetector.detectAndCompute(targetImg, None)
-    kp2, trainingDescriptor = siftFeatureDetector.detectAndCompute(trainingImg, None)
+    kp1, targetDescriptor = siftFeatureDetector.detectAndCompute(targetImg, interestedMask,None)
+    kp2, trainingDescriptor = siftFeatureDetector.detectAndCompute(trainingImg,interestedMask, None)
+    if targetDescriptor is None:
+        print('ERROR, targetDescriptor is None, return 0,1,10 ,meaning no match')
+        return 0, 1, 10
+    if trainingDescriptor is None:
+        print('ERROR, trainingDescriptor is None(trainingId={}), return 0,1,10 ,'
+              'Please tune parameter and redo training'.format(trainingId))
+        # raise ValueError
+        return 0, 1, 10
 
 
     # create FLANN matcher
@@ -520,16 +553,17 @@ def matchByFLANN(targetImg, trainingImg, queryDescriptor, display):
         cv.imshow('liveImg keypoints', img5)
         cv.imshow('comparing with training image(at right)', resultImage)
 
-    return len(good), targetDescriptor.shape[0], queryDescriptor.shape[0]
+    return len(good), targetDescriptor.shape[0], trainingDescriptor.shape[0]
 
 
 
-cameraResW = 800
-cameraResH = 600
+cameraResW = 160
+cameraResH = 120
 scale = 2
 wP = 300*scale
 hP = 300*scale
-
+SY,EY = 41, 82
+SX,EX = 44, 87
 import argparse,os.path
 
 if __name__ == "__main__":
@@ -544,8 +578,8 @@ if __name__ == "__main__":
     liveCaptureWindowName = 'live_capture'
     trainingPicsFolderName = r'./pictures/'
     trainingFeaturesFolderName =  r'./features/'
-    expectedId = 6  # simulate the id of currently capture image
-    playbackId = 15   # simulate playback image id
+    expectedId = 1  # simulate the id of currently capture image
+    playbackId = 1   # simulate playback image id
     reloadNeeded = False  # simulate playback image file reload if file changes
     success, queryImgDataBase = loadTrainImgDescriptors(trainingPicsFolderName,
                                                         trainingFeaturesFolderName)
@@ -558,7 +592,7 @@ if __name__ == "__main__":
     camera.set(4, cameraResH)
     # originalFileName = 'originLiveCapture.png'
 
-    live_img = cv.imread(os.path.join(trainingPicsFolderName, '15.png'))
+    live_img = cv.imread(os.path.join(trainingPicsFolderName, '2.png'))
     monitor = True
     while monitor:
         if args.webCamera == 1:
@@ -588,15 +622,18 @@ if __name__ == "__main__":
 
         if not success:
             continue
-        liveFound, liveImgWarp = isolateROI(live_img, drawRect=drawRect, save=saveImage, blurr_level = 5, threshold_1 =81,
-                                            threshold_2 = 112, kernelSize = 5, minArea = 50000, maxArea = 99502,
+        liveFound, liveImgWarp = isolateROI(live_img, drawRect=drawRect, save=saveImage,
+                                            blurr_level = 5, threshold_1 = 59,
+                                            threshold_2 = 136, kernelSize = 5, minArea = 50000, maxArea = 116230,
                                             windowName=liveCaptureWindowName)
         if liveFound:
             # result = matchByTemplate(imgWarp, liveImgWarp, matchThreshold=0.8, draw=True, save=saveImage)
             # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
             # which is hard in engineering environment, the image captured  by camera are pixel-different even in same environment
             # in 2 shots
-            result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, str(expectedId), display=True)
+            result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, str(expectedId),
+                                                           display=True,
+                                                           sy=SY,ey=EY,sx=SX, ex=EX)
             if result:
                 matchedTrainingRoiImg = cv.imread(trainingPicsFolderName +
                                                   queryImgDataBase[matchedFileName]['roiFileName'])
@@ -606,10 +643,10 @@ if __name__ == "__main__":
                 print(verdict)
                 cv.putText(matchedTrainingRoiImg,"sample id: " + matchedFileName,(10,500),
                            cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)
-                cv.imshow('matched training sample', matchedTrainingRoiImg)
+                # cv.imshow('matched training sample', matchedTrainingRoiImg)
             else:   # not a match in training sets
                 verdict = 'expected={}, no match '.format(expectedId)
-                cv.destroyWindow('matched training sample')
+                # cv.destroyWindow('matched training sample')
 
             markImg = live_img.copy()
             if result:
@@ -651,4 +688,6 @@ if __name__ == "__main__":
             playbackId -= 1
             reloadNeeded = True
     cv.destroyAllWindows()
+    if args.webCamera == 1:
+        camera.release()
 

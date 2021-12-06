@@ -13,8 +13,8 @@ def func(x):
     pass
 
 
-cameraResW = 800
-cameraResH = 600
+cameraResW = 160
+cameraResH = 120
 scale = 2
 wP = 300*scale
 hP = 300*scale
@@ -23,7 +23,7 @@ hP = 300*scale
 if __name__ == '__main__':
     webCam = True
     if webCam:
-        camera = cv2.VideoCapture(0)
+        camera = cv2.VideoCapture(2)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
         originalFileName = 'originLiveCapture.png'
@@ -50,14 +50,14 @@ if __name__ == '__main__':
     tbMinArea = 'minArea'
     tbMaxArea = 'maxArea'
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
-    cv2.createTrackbar(tbMaxArea, windowName, 20, 500000, func)
+    cv2.createTrackbar(tbMaxArea, windowName, 20, 300000, func)
 
     switch = '0 : Origin\n1 : Gray\n2 : blur\n 3: Canny\n 4: dilate\n 5:erode\n 6:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
     cv2.setTrackbarPos(switch, windowName, 6)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
-    cv2.setTrackbarPos(tbMaxArea, windowName, 78773)
+    cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
     cv2.setTrackbarPos(tbCannyThr1, windowName, 86)
     cv2.setTrackbarPos(tbCannyThr2, windowName, 245)
     kernel = np.ones((5, 5))
@@ -81,58 +81,55 @@ if __name__ == '__main__':
         elif s == 1:
             cv2.imshow(windowName, gray)
         elif s == 2:
-            blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            blur = cv2.blur(gray,(blurr_level,blurr_level))
+            cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
+                       cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
+            print('blurr_level={}'.format(blurr_level))
             cv2.imshow(windowName, blur)
         elif s == 3:
-            blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            blur = cv2.blur(gray,(blurr_level,blurr_level))
             # retval, thresh = cv2.threshold(blur, threshold_1, 255, cv2.THRESH_BINARY)#|cv2.THRESH_OTSU)
             imgCanny = cv2.Canny(blur, threshold_1, threshold_2)
             cv2.imshow (windowName, imgCanny)
 
         elif s == 4:
-            blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            blur = cv2.blur(gray,(blurr_level,blurr_level))
             imgCanny = cv2.Canny(blur, threshold_1, threshold_2)
             imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
             cv2.imshow (windowName, imgDilate)
         elif s == 5:
-            blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-            imgCanny = cv2.Canny(blur, threshold_1,threshold_2)
-            # imgErode = cv2.erode(imgCanny, kernel,iterations=1)
-            # imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=1)
-            # cv2.imshow (windowName, imgDilate)
-            imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
-            imgErode = cv2.erode(imgDilate, kernel, iterations=3)
-            # cv2.imshow (windowName, imgErode)
-            # start of getRequiredContours
-            contours_img = imgErode.copy()
-            contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+            # show erodeImage
+            contours_img = img.copy()
+            erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
-                                                      needPreProcess=False)
-            cv2.imshow(windowName,contours_img)
+                                                      returnErodeImage=True)
+            cv2.imshow(windowName, erodeImage)
             if len(conts) != 0:
                 print('hhhh,conts = {}'.format(conts))
                 minAreaRectBox = conts[0][2]
                 # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-                imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
-                cv2.imshow('warped lcd screen img', imgWarp)
-
+                imgWarp = warpImg(erodeImage, minAreaRectBox, wP, hP)
+                cv2.imshow('warped erode img', imgWarp)
             # end of getcontours
         else:
-            # get the lcd Screen part rectangle from original img
+            # get the lcd Screen part rectangle from original blurred img
             contours_img = img.copy()
-            contours_img, conts = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
-                                                      )
+                                                      returnErodeImage=False)
             cv2.imshow(windowName, contours_img)
             if len(conts) != 0:
                 print('hhhh,conts = {}'.format(conts))
                 minAreaRectBox = conts[0][2]
                 # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-                imgWarp = warpImg(contours_img, minAreaRectBox, wP, hP)
+                imgWarp = warpImg(blurredImg, minAreaRectBox, wP, hP)
                 cv2.imshow('warped lcd screen img', imgWarp)
 
                 if saveLcdScreenMarked:
@@ -143,21 +140,22 @@ if __name__ == '__main__':
                     saveWarpImg = False
 
         # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
-                contours_img2, conts2 = \
-                    getRequiredContours(imgWarp, blurr_level, threshold_1, threshold_2,
-                                      kernel,
-                                      minArea=4, maxArea=minArea,
-                                      cornerNumber=4, draw=True,
-                                      )
-
-                if len(conts2) != 0:
-                    for symbol in conts2:
-                        cv2.polylines(contours_img2, [symbol[1]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
-                    cv2.imshow('lcd internal window', contours_img2)
-                    if saveLcdInternal:
-                        cv2.imwrite(originalFileName.split('.')[0] + '_insideDetectImg.png', contours_img2)
-                        saveLcdInternal = False
-
+        #         contours_img2, conts2 = \
+        #             getRequiredContours(imgWarp, blurr_level, threshold_1, threshold_2,
+        #                               kernel,
+        #                               minArea=4, maxArea=minArea,
+        #                               cornerNumber=4, draw=True,
+        #                               needPreProcess=False
+        #                               )
+        #
+        #         if len(conts2) != 0:
+        #             for symbol in conts2:
+        #                 cv2.polylines(contours_img2, [symbol[1]], True, (255, 0, 0), 2)  #draw symbol's approx in BLUE
+        #             cv2.imshow('lcd internal window', contours_img2)
+        #             if saveLcdInternal:
+        #                 cv2.imwrite(originalFileName.split('.')[0] + '_insideDetectImg.png', contours_img2)
+        #                 saveLcdInternal = False
+        #
 
 
         k = cv2.waitKey(1) & 0xFF
@@ -174,3 +172,4 @@ if __name__ == '__main__':
             drawRect = False
 
     cv2.destroyAllWindows()
+    camera.release()

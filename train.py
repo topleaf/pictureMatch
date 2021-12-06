@@ -80,9 +80,9 @@ class BuildDatabase(object):
         for fileName in files:
             fullPath = self._folderName + '/' + fileName
             rawImg = cv.imread(fullPath)
-            retval, warpImg = isolateROI(rawImg, drawRect = False, save = False, blurr_level = 5,
-                       threshold_1=86, threshold_2=245,
-                   kernelSize=5, minArea = 50000, maxArea = 78773, #120000,
+            retval, warpImg = isolateROI(rawImg, drawRect=False, save=False, blurr_level=5,
+                       threshold_1=36, threshold_2=130,
+                   kernelSize=5, minArea = 50000, maxArea = 116230,
                    windowName='find Contours', wP= self._warpImgWP,
                        hP=self._warpImgHP, display=False)
             if retval:
@@ -189,8 +189,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="standard training image sets build up")
     parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
     parser.add_argument("--port", dest='portId', help='USB serial com port ID [0,1,2,3]',default=0, type=int)
-    parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,etc]',default=800, type=int)
-    parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,etc]',default=600, type=int)
+    parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,160 etc]',default=160, type=int)
+    parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,120 etc]',default=120, type=int)
     parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=50, type=int)
     parser.add_argument("--imgWidth", dest='imgWidth', help='set ROI image width [1280,800,640,etc]',default=600, type=int)
     parser.add_argument("--imgHeight", dest='imgHeight', help='set ROI image height [960,600,480,etc]',default=600, type=int)
