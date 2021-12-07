@@ -8,7 +8,7 @@ build query images database information,
 3. detect and compute their keypoints and featureDescriptor, save to disk
 """
 from managers import WindowManager,CaptureManager,CommunicationManager
-from edgeDetect import isolateROI
+from edgeDetect import extractValidROI
 import logging
 import argparse
 from os import walk, mkdir
@@ -19,7 +19,7 @@ import numpy as np
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
-                 duration, videoWidth, videoHeight, wP, hP,folderName,featureFolder,
+                 duration, videoWidth, videoHeight, wP, hP,folderName,roiFolderName,featureFolder,
                  imgFormat,skipCapture=True):
         """
 
@@ -55,6 +55,7 @@ class BuildDatabase(object):
         self._current = None
         self._waitFrameCount = 0  #
         self._folderName = folderName
+        self._roiFolderName = roiFolderName
         self._featureFolderName = featureFolder
         self._imgFormat = imgFormat
         self._warpImgWP, self._warpImgHP = wP, hP
@@ -69,6 +70,16 @@ class BuildDatabase(object):
         self._generateWarpImagesAndDescriptors()
 
     def _generateWarpImagesAndDescriptors(self):
+        """
+        from raw captured training pictures folder, generate training pictures to be used as standard samples
+        save the samples and their respective graph feature Descriptors to self._roiFolderName and self._featureFolderName
+        :return:
+        """
+        try:
+            mkdir(self._roiFolderName)
+        except FileExistsError as e:
+            self.logger.debug('roi image folder %s exists' % self._roiFolderName)
+
         files = []
         for (dirPath, dirNames, fileNames) in walk(self._folderName):
             pass
@@ -80,13 +91,11 @@ class BuildDatabase(object):
         for fileName in files:
             fullPath = self._folderName + '/' + fileName
             rawImg = cv.imread(fullPath)
-            retval, warpImg = isolateROI(rawImg, drawRect=False, save=False, blurr_level=5,
-                       threshold_1=36, threshold_2=130,
-                   kernelSize=5, minArea = 50000, maxArea = 116230,
-                   windowName='find Contours', wP= self._warpImgWP,
-                       hP=self._warpImgHP, display=False)
+            retval, warpImg = extractValidROI(rawImg, drawRect=False, save=False,
+                                              wP=self._warpImgWP, hP=self._warpImgHP, display=False)
+
             if retval:
-                warpFileName = self._folderName + '/' + fileName.split('.')[0]+'_ROI.' + self._imgFormat
+                warpFileName = self._roiFolderName + '/' + fileName.split('.')[0]+'_ROI.' + self._imgFormat
                 cv.imwrite(warpFileName, warpImg)
                 self.logger.info('ROI detected, saved to {}'.format(warpFileName))
 
@@ -127,10 +136,11 @@ class BuildDatabase(object):
             retry = 0
             while response == b'' and retry < 3:
                 self.logger.debug('send command to switch to {},retry={}'.format(self._current, retry))
+                assert self._current in range(STATES_NUM)
                 command = self._communicationManager.send(self._current)
                 response = self._communicationManager.getResponse()
-                if response == command:
-                    self.logger.info('===>>> get response, start  camera capture and preview')
+                if response[:-1] == command:
+                    self.logger.info('===>>> get valid response, start  camera capture and preview')
 
                     self._waitFrameCount = 0
                     while self._windowManager.isWindowCreated and self._waitFrameCount <= \
@@ -189,18 +199,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="standard training image sets build up")
     parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
     parser.add_argument("--port", dest='portId', help='USB serial com port ID [0,1,2,3]',default=0, type=int)
-    parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,160 etc]',default=160, type=int)
-    parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,120 etc]',default=120, type=int)
+    parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,160 etc]',default=800, type=int)
+    parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,120 etc]',default=600, type=int)
     parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=50, type=int)
     parser.add_argument("--imgWidth", dest='imgWidth', help='set ROI image width [1280,800,640,etc]',default=600, type=int)
     parser.add_argument("--imgHeight", dest='imgHeight', help='set ROI image height [960,600,480,etc]',default=600, type=int)
     parser.add_argument("--folder", dest='folder',help='folder name to store training image files', default= "./pictures", type=str)
+    parser.add_argument("--roiFolder", dest='roiFolder',help='folder name to store Region of Interest training image files', default ='./rois', type=str)
     parser.add_argument("--featureFolder", dest='featureFolder',help='folder name to store image feature files', default ='./features', type=str)
     parser.add_argument("--imageFormat", dest='imageFormat',help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
     parser.add_argument("--skipCapture", dest='skipCapture',help='do not overwrite existing image files [0,1]', default = True, type=int)
 
     args = parser.parse_args()
 
+    STATES_NUM = 16
     logger = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
     logHandler = logging.StreamHandler()
@@ -212,8 +224,8 @@ if __name__ == "__main__":
 
 
     solution = BuildDatabase(logger, "build database", args.deviceId,
-                             range(1, 60, 1), args.portId, args.duration,
-                             args.width, args.height, args.imgWidth,args.imgHeight, args.folder,
+                             range(0, STATES_NUM, 1), args.portId, args.duration,
+                             args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              skipCapture=args.skipCapture)
     try:

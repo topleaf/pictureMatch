@@ -23,7 +23,7 @@ hP = 300*scale
 if __name__ == '__main__':
     webCam = True
     if webCam:
-        camera = cv2.VideoCapture(2)
+        camera = cv2.VideoCapture(0)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
         originalFileName = 'originLiveCapture.png'

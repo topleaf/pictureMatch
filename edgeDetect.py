@@ -254,13 +254,34 @@ def warpImg(img, points, w, h):
     return imgWarp
 
 
-def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=36,
-               threshold_2 = 130, kernelSize = 5, minArea = 25000, maxArea = 29000,
-               windowName = 'find Contours', wP = 600, hP = 600, display=True):
+def extractValidROI(rawImg, drawRect=False, save=False, wP=600, hP=600, winName='winName',display=False ):
+    """
+         both training process and predict process must call this to method with exact same parameters
+    :param rawImg:
+    :param drawRect:
+    :param save:
+    :param wP:
+    :param hP:
+    :param winName:
+    :param display:
+    :return:
+    """
+    # this method contains tunable parameters that must be consistent between training and predict ,
+    # they are blurr_level, threshold_1,threshold_2,kernelSize,minArea,maxArea,wP and hP
+    retval, warpImg = isolateROI(rawImg, drawRect=drawRect, save=save, blurr_level=5,
+                                 threshold_1=19, threshold_2=57,
+                                 kernelSize=5, minArea = 50000, maxArea = 116230,
+                                 windowName=winName, wP=wP,
+                                 hP=hP, display=display)
+    return retval, warpImg
+
+def isolateROI(img, drawRect , save , blurr_level , threshold_1,
+               threshold_2 , kernelSize , minArea, maxArea ,
+               windowName , wP, hP , display):
     """
     display windows on screen showing images
     :param img: original raw image
-    :param draw: draw rectangle around detected object or not
+    :param drawRect: draw rectangle around detected object or not
     :param save: save to disk or not
     :param wP: width of project size in pixel
     :param hP: height of project size in pixel
@@ -281,10 +302,10 @@ def isolateROI(img, drawRect = True, save = True, blurr_level = 5, threshold_1=3
                                               kernel,
                                               minArea=minArea, maxArea=maxArea,
                                               cornerNumber=4, draw=drawRect,
-                                              returnErodeImage=True)
+                                              returnErodeImage=False)
     # do NOT look for  contour within interested area, and warp
     # because edgeDetection under live camera is not stable.
-    return True, blurred_img
+    return True, contours_img  #blurred_img
     # print('found satisfactory contours: {}'.format(conts))
 
     # cv.drawContours(img, contours, -1, (0,255,0), 2)
@@ -391,10 +412,11 @@ def matchByORB(img1, img2, maxMatchedCount, display = True):
         cv.imshow('query keypoints',img4)
         cv.imshow('template keypoints',img5)
 
-def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuffix='npy'):
+def loadTrainImgDescriptors(roiFolderName,featureFolderName,imgSuffix='png',descSuffix='npy'):
     """
-    load train Info from specified folder into a dictionary
-    :param folderName: raw image files dirname
+    load train Info from specified folders into a dictionary
+    # :param folderName: raw image files dirname
+    :param roiFolderName: roi training image files dirname
     :param featureFolderName: feature descriptor files dirname
     :param imgSuffix: image format suffix, eg, jpg,png,jpeg
     :param descSuffix: descriptor format suffix, 'npy' saved using np.save()
@@ -406,7 +428,7 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
 
     """
     trainInfoDict={}
-    for dirpath, dirname, filenames in walk(folderName):
+    for dirpath, dirname, filenames in walk(roiFolderName):
         for file in filenames:
             if file.split('.')[1] == imgSuffix:
                 try:    # get raw image filename
@@ -417,7 +439,7 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
                     try:   # only digit accepted
                         n = int(key)
                     except ValueError:
-                        print('ignore non-number image files')
+                        print('ignore non-number training image files')
                     else:
                         trainInfoDict[key] = {}
                         trainInfoDict[key]['roiFileName'] = file
@@ -442,7 +464,8 @@ def loadTrainImgDescriptors(folderName,featureFolderName,imgSuffix='png',descSuf
         return True, trainInfoDict
 
 
-def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display,sy,ey,sx,ex):
+def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display, sy, ey, sx, ex,
+                         maxDesDifferencePercentage, minMatchedPercentage):
     """
      compare liveImgWarp descriptor with descriptors in trainImgInfos by the key of expectedId,
      return True and the most matched filename in trainImginfos, or False and None
@@ -452,9 +475,15 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display,sy,ey,s
             ...
             }
 
-    :param liveImgWarp:  blurred live warped image
+    :param liveImgWarp:  live warped image
     :param expectedId : in str, the id of expected image
     :param display: True/False
+    :param sy:  start y position in pixel
+    :param ey: end y position in pixel
+    :param sx: start x position in pixel
+    :param ex: end x position in pixel    ,above 4 parameters specified interested ROI to be compared
+    :param maxDesDifferencePercentage: maximun difference percentage of 2 images descriptors before judging them as a match
+    :param minMatchedPercentage : minMatchedPercentage of 2 images Descriptors before judging them as a match
     :return: True,filename or False,None
     """
     try:
@@ -467,8 +496,8 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display,sy,ey,s
 
     matchedName = None
     matchedCount, liveDescriptorNum, trainingDescriptorNum =\
-        matchByFLANN(liveImgWarp, expectedTrainingRoiImg,expectedId,
-                      display,sy,ey,sx,ex)
+        matchByFLANN(liveImgWarp, expectedTrainingRoiImg, expectedId,
+                      display, sy, ey, sx, ex)
 
     # all keypoints descriptors must be the same and the number of keypoints must be same
     #  too strict
@@ -482,7 +511,7 @@ def queryDatabaseByFLANN(trainInfoDict, liveImgWarp, expectedId, display,sy,ey,s
           'matchedPerc ={:.2f}'.format(
         expectedId, matchedCount,liveDescriptorNum,trainingDescriptorNum,
         descNumDiffPer,matchedPerc))
-    if descNumDiffPer <= 0.34 and matchedPerc >= 0.80:
+    if descNumDiffPer <= maxDesDifferencePercentage and matchedPerc >= minMatchedPercentage:
             matchedName = expectedId
     if matchedName is None:
         return False, None
@@ -557,14 +586,16 @@ def matchByFLANN(targetImg, trainingImg, trainingId, display,sy,ey,sx,ex):
 
 
 
-cameraResW = 160
-cameraResH = 120
+cameraResW = 800
+cameraResH = 600
 scale = 2
 wP = 300*scale
 hP = 300*scale
-SY,EY = 41, 82
-SX,EX = 44, 87
-import argparse,os.path
+SY,EY = 162, 374
+SX,EX = 334, 566
+MAX_DES_DIFF_PER = 0.34     # allowable maximum descriptors number difference in percentage when comparing 2 images
+MIN_MATCHED_PER =0.70       # threshold , minimum matched descriptors number in percentage when comparing 2 images
+import argparse, os.path
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="sample main utility to check lcd display")
@@ -576,9 +607,10 @@ if __name__ == "__main__":
     saveImage = False
     drawRect = False
     liveCaptureWindowName = 'live_capture'
-    trainingPicsFolderName = r'./pictures/'
+    rawTrainingPicsFolderName = r'./pictures/'
+    trainingPicsFolderName = r'./rois/'
     trainingFeaturesFolderName =  r'./features/'
-    expectedId = 1  # simulate the id of currently capture image
+    expectedId = 15  # simulate the id of currently capture image
     playbackId = 1   # simulate playback image id
     reloadNeeded = False  # simulate playback image file reload if file changes
     success, queryImgDataBase = loadTrainImgDescriptors(trainingPicsFolderName,
@@ -587,19 +619,20 @@ if __name__ == "__main__":
         print('training set loading failed, please check they are valid and retry!')
         exit(-1)
 
+
     camera = cv.VideoCapture(args.deviceId)
     camera.set(3, cameraResW)
     camera.set(4, cameraResH)
     # originalFileName = 'originLiveCapture.png'
 
-    live_img = cv.imread(os.path.join(trainingPicsFolderName, '2.png'))
+    live_img = cv.imread(os.path.join(rawTrainingPicsFolderName, '2.png'))
     monitor = True
     while monitor:
         if args.webCamera == 1:
             success, live_img = camera.read()
         else:
             if reloadNeeded:
-                live_img = cv.imread(os.path.join(trainingPicsFolderName, str(playbackId)+'.png'))
+                live_img = cv.imread(os.path.join(rawTrainingPicsFolderName, str(playbackId)+'.png'))
                 reloadNeeded = False
 
             if live_img is not None:
@@ -622,10 +655,8 @@ if __name__ == "__main__":
 
         if not success:
             continue
-        liveFound, liveImgWarp = isolateROI(live_img, drawRect=drawRect, save=saveImage,
-                                            blurr_level = 5, threshold_1 = 59,
-                                            threshold_2 = 136, kernelSize = 5, minArea = 50000, maxArea = 116230,
-                                            windowName=liveCaptureWindowName)
+        liveFound, liveImgWarp = extractValidROI(live_img, drawRect=drawRect, save=saveImage, wP=wP, hP=wP,
+                                            winName=liveCaptureWindowName,display=False)
         if liveFound:
             # result = matchByTemplate(imgWarp, liveImgWarp, matchThreshold=0.8, draw=True, save=saveImage)
             # matchByTemplate method does not fit for this scenario, since it requires pixel by pixel exact match ,
@@ -633,7 +664,9 @@ if __name__ == "__main__":
             # in 2 shots
             result, matchedFileName = queryDatabaseByFLANN(queryImgDataBase, liveImgWarp, str(expectedId),
                                                            display=True,
-                                                           sy=SY,ey=EY,sx=SX, ex=EX)
+                                                           sy=SY,ey=EY,sx=SX, ex=EX,
+                                                           maxDesDifferencePercentage=MAX_DES_DIFF_PER,
+                                                           minMatchedPercentage=MIN_MATCHED_PER)
             if result:
                 matchedTrainingRoiImg = cv.imread(trainingPicsFolderName +
                                                   queryImgDataBase[matchedFileName]['roiFileName'])
@@ -683,9 +716,13 @@ if __name__ == "__main__":
             expectedId = int(chr(k))
         elif k == ord('n') or k == ord('N'):  # simulate load next playback id image
             playbackId += 1
+            if playbackId == len(queryImgDataBase)-1:
+                playbackId = 0
             reloadNeeded = True
         elif k == ord('b') or k == ord('B'):  # simulate load previous playback id image
             playbackId -= 1
+            if playbackId < 0:
+                playbackId = len(queryImgDataBase)-1
             reloadNeeded = True
     cv.destroyAllWindows()
     if args.webCamera == 1:
