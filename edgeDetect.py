@@ -268,8 +268,8 @@ def extractValidROI(rawImg, drawRect=False, save=False, wP=600, hP=600, winName=
     """
     # this method contains tunable parameters that must be consistent between training and predict ,
     # they are blurr_level, threshold_1,threshold_2,kernelSize,minArea,maxArea,wP and hP
-    retval, warpImg = isolateROI(rawImg, drawRect=drawRect, save=save, blurr_level=5,
-                                 threshold_1=19, threshold_2=57,
+    retval, warpImg = isolateROI(rawImg, drawRect=drawRect, save=save, blurr_level=1,
+                                 threshold_1=87, threshold_2=132,
                                  kernelSize=5, minArea = 50000, maxArea = 116230,
                                  windowName=winName, wP=wP,
                                  hP=hP, display=display)
@@ -591,8 +591,8 @@ cameraResH = 600
 scale = 2
 wP = 300*scale
 hP = 300*scale
-SY,EY = 162, 374
-SX,EX = 334, 566
+SY,EY = 135, 425
+SX,EX = 67, 420
 MAX_DES_DIFF_PER = 0.34     # allowable maximum descriptors number difference in percentage when comparing 2 images
 MIN_MATCHED_PER =0.70       # threshold , minimum matched descriptors number in percentage when comparing 2 images
 import argparse, os.path
@@ -716,7 +716,7 @@ if __name__ == "__main__":
             expectedId = int(chr(k))
         elif k == ord('n') or k == ord('N'):  # simulate load next playback id image
             playbackId += 1
-            if playbackId == len(queryImgDataBase)-1:
+            if playbackId == len(queryImgDataBase):
                 playbackId = 0
             reloadNeeded = True
         elif k == ord('b') or k == ord('B'):  # simulate load previous playback id image

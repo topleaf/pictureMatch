@@ -13,8 +13,8 @@ def func(x):
     pass
 
 
-cameraResW = 160
-cameraResH = 120
+cameraResW = 800
+cameraResH = 600
 scale = 2
 wP = 300*scale
 hP = 300*scale
