@@ -7,7 +7,7 @@ import argparse
 
 class CameraJitterPlot:
     def __init__(self, deviceId=0, frameNum=5,save = False,
-                 sampleInteval=1, resW=800, resH=600,folderName='plotFrames',x=100,y=200,
+                 sampleInteval=1, resW=1920, resH=1080,folderName='plotFrames',x=100,y=200,
                  liveMode = True):
         self.liveMode = liveMode
 
@@ -22,10 +22,15 @@ class CameraJitterPlot:
         self.y = y
         self.save = save
         self.actualCount = 0
+        self._cameraProporty = []
         if self.liveMode:
             self.camera = cv.VideoCapture(deviceId)
             self.camera.set(3,resW)
             self.camera.set(4,resH)
+            self.camera.set(5, 5)
+            for i in range(19):
+                self._cameraProporty.append(self.camera.get(i))
+                print(i, ":", self._cameraProporty[i], "\t")
         else:
             self.frame = cv.imread(self.folderName+'0.png')
         pass
@@ -105,12 +110,12 @@ class CameraJitterPlot:
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser("plot the (b,g,r) values at position of (x,y) from live camera")
-    parser.add_argument('--deviceId',dest="deviceId",help="video camera id: ",type=int,default=0)
-    parser.add_argument('--x',dest="x",help="x position ",type=int,default=332)
-    parser.add_argument('--y',dest="y",help="y position ",type=int,default=364)
-    parser.add_argument('--frameNum',dest="frameNum",help="capture how many frames ",type=int,default=100)
-    parser.add_argument('--save',dest="save",help="save to disk or not ",type=int,default=0)
-    parser.add_argument('--liveMode',dest="live",help="live or playback mode ",type=int,default=1)
+    parser.add_argument('--deviceId',dest="deviceId",help="video camera id:,default=0 ",type=int,default=0)
+    parser.add_argument('--x',dest="x",help="x position ,default=332",type=int,default=332)
+    parser.add_argument('--y',dest="y",help="y position ,default=364",type=int,default=364)
+    parser.add_argument('--frameNum',dest="frameNum",help="capture how many frames ,default=100",type=int,default=100)
+    parser.add_argument('--save',dest="save",help="save to disk or not,default=0 ",type=int,default=0)
+    parser.add_argument('--liveMode',dest="live",help="live or playback mode,default=1 ",type=int,default=1)
     args = parser.parse_args()
     plotter = CameraJitterPlot(deviceId=args.deviceId,save=args.save, frameNum=args.frameNum,x=args.x, y=args.y,
                                liveMode=args.live)#x=332, y=364
