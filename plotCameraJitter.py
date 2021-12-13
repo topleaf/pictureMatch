@@ -8,7 +8,7 @@ import argparse
 class CameraJitterPlot:
     def __init__(self, deviceId=0, frameNum=5,save = False,
                  sampleInteval=1, resW=1920, resH=1080,folderName='plotFrames',x=100,y=200,
-                 liveMode = True):
+                 liveMode = True,fileName='./trainingImages/2/pos-0.png'):
         self.liveMode = liveMode
 
 
@@ -32,7 +32,7 @@ class CameraJitterPlot:
                 self._cameraProporty.append(self.camera.get(i))
                 print(i, ":", self._cameraProporty[i], "\t")
         else:
-            self.frame = cv.imread(self.folderName+'0.png')
+            self.frame = cv.imread(fileName)
         pass
 
     def capture(self):
@@ -116,8 +116,10 @@ if __name__ =='__main__':
     parser.add_argument('--frameNum',dest="frameNum",help="capture how many frames ,default=100",type=int,default=100)
     parser.add_argument('--save',dest="save",help="save to disk or not,default=0 ",type=int,default=0)
     parser.add_argument('--liveMode',dest="live",help="live or playback mode,default=1 ",type=int,default=1)
+    parser.add_argument('--fileName', dest="fileName",help="playback mode fileName, "
+                                                          "default=./trainingImages/2/pos-0.png ",type=str,default='./trainingImages/2/pos-0.png')
     args = parser.parse_args()
     plotter = CameraJitterPlot(deviceId=args.deviceId,save=args.save, frameNum=args.frameNum,x=args.x, y=args.y,
-                               liveMode=args.live)#x=332, y=364
+                               liveMode=args.live,fileName=args.fileName)#x=332, y=364
     plotter.capture()
     plotter.show()
