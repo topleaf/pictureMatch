@@ -29,6 +29,10 @@ import cv2 as cv
 from cv2 import xfeatures2d
 import numpy as np
 
+STATES_NUM = 3
+SY,EY = 358, 882
+SX,EX = 1150, 1748
+
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
@@ -77,15 +81,18 @@ class BuildDatabase(object):
         self.negative = 'neg-'
         self._modelFolder = modelFolder
         self._modelPrefixName = modelPrefixName
+        self.interestedMask = None      # define a region of interest after get image from frame
+
 
 
     def run(self):
         #  step 1: capture and save all positive training images to respective image folders/pos-x
         self._captureAndSaveAllImages()
-        #  step 2:  use some of other id's positive training images as one id's negative training images
-        # self._createNegativeTrainingSamples()
-        #  step 3: training each SVM models and save them to disk.
+        #  step 2: training each SVM models and save them to disk.
         self._trainSVMModels()
+
+        # step 3: predict current captured frame by different models to check accuracy
+        self._predict()
 
         # #  generate image's keypoints&feature descriptors,save to featureFolders
         # self._generateWarpImagesAndDescriptors()
@@ -147,11 +154,8 @@ class BuildDatabase(object):
         '''
         if cls == self.positive:
             return "%s/%s%d.%s" %(join(self._folderName,str(typeid)),cls,i,self._imgFormat)
-        else: # get the first positive sample of possible other typeid as this typeid's negative sample
-            assert 0<=i<STATES_NUM
-            negId = (typeid+i+1) % STATES_NUM
-            fullpath="%s/%s%d.%s"  %(join(self._folderName, str(negId)), self.positive, 1, self._imgFormat)
-            return fullpath
+        else:  # no neg- folder
+            raise  ValueError
 
 
     def _captureAndSaveAllImages(self):
@@ -210,12 +214,6 @@ class BuildDatabase(object):
                 self._waitFrameCount = True
                 continue
 
-    def _createNegativeTrainingSamples(self):
-        """
-         get the first  items of other type positive images , use them as negative sample for this id
-        :return:
-        """
-        pass
 
     def extract_sift(self,fn):
         """
@@ -223,8 +221,16 @@ class BuildDatabase(object):
         :param fn: full path of the image
         :return:
         """
+
         im  = cv.imread(fn, 0)
-        return self.extract.compute(im, self.detector.detect(im))[1]
+        # set up a mask to select interested zone only
+        self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
+        # self.interestedMask[0:im.shape[0], 0:im.shape[1]] = np.uint8(255)
+        self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
+        # cv.imshow('mask', self.interestedMask)
+        keypoints = self.detector.detect(im, mask=self.interestedMask)
+        keypoints, features = self.extract.compute(im, keypoints)
+        return features
 
 
     def _bowFeatures(self,fn):
@@ -233,54 +239,65 @@ class BuildDatabase(object):
         :param fn:  full path of the image
         :return:  its descriptor
         """
-        im = cv.imread(fn,0)
-        return self.extractBow.compute(im, self.detector.detect(im))
+        im = cv.imread(fn, 0)
+        # # set up a mask to select interested zone only
+        # self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
+        # # self.interestedMask[0:im.shape[0], 0:im.shape[1]] = np.uint8(255)
+        # self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
+        keypoints = self.detector.detect(im, mask=self.interestedMask)
+        features = self.extractBow.compute(im, keypoints)
+        return features
 
 
     def _trainSVMModels(self):
-
-        #create  keypoints detector and descriptor extractor
-        self.detector = cv.xfeatures2d.SIFT_create()
-        self.extract = cv.xfeatures2d.SIFT_create()
-
-        #create a flann matcher
-        FLANN_INDEX_KDTREE = 0
-        indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        searchParams = dict(checks=50)
-        self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
-
-
-
         # training multiple svm models and save them to disk
-        svmModels = []
+        self.svmModels = []
         for self._current in self._predefinedPatterns:
+            #create  keypoints detector and descriptor extractor
+            self.detector = cv.xfeatures2d.SIFT_create()
+            self.extract = cv.xfeatures2d.SIFT_create()
+
+            #create a flann matcher
+            FLANN_INDEX_KDTREE = 0
+            indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+            searchParams = dict(checks=50)
+            self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
+
+
             #create a bag-of-word K means trainer with 40 clusters
             self.bowKmeansTrainer = cv.BOWKMeansTrainer(40)
 
             # create a bowImgDescriptorExtractor
             self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
 
-            # insert negative training samples to bowKmeansTrainer
-            for i in range(STATES_NUM):
-                self.bowKmeansTrainer.add(self.extract_sift(self._path(self._current, self.negative, i)))
+            try:
+                # insert the other typeid's first positive training image
+                # as the negative training samples for this typeid to bowKmeansTrainer
+                for i in range(1, STATES_NUM, 1):
+                    if i != self._current:
+                        self.bowKmeansTrainer.add(self.extract_sift(self._path(i, self.positive, 1)))
 
-            #insert positive training samples to bowKmeansTrainer   # which might be more than typeid
-            for i in range(self._trainingFrameCount):
-                self.bowKmeansTrainer.add(self.extract_sift(self._path(self._current,self.positive,i)))
+                #insert positive training samples to bowKmeansTrainer   # which might be more than typeid
+                for i in range(self._trainingFrameCount):
+                    self.bowKmeansTrainer.add(self.extract_sift(self._path(self._current,self.positive,i)))
+            except Exception as e:
+                self.logger.error(e)
+                raise ValueError
 
             # generate vocabulary
             voc = self.bowKmeansTrainer.cluster()
             self.extractBow.setVocabulary(voc)
 
             # create both positive and negative training samples lists
-            trainData, trainLabels = [],[]
+            trainData, trainLabels = [], []
             for i in range(self._trainingFrameCount):
                 trainData.extend(self._bowFeatures(self._path(self._current, self.positive, i)))
                 trainLabels.append(1)
 
-            for i in range(STATES_NUM):
-                trainData.extend(self._bowFeatures(self._path(self._current,self.negative, i)))
-                trainLabels.append(-1)
+            for i in range(1, STATES_NUM, 1):
+                if self._current != i:
+                    trainData.extend(self._bowFeatures(self._path(i, self.positive, 1)))
+                    trainLabels.append(-1)
 
             # create a svm and feed data to train the model
             print('create SVM model {} and train it ....'.format(self._current))
@@ -293,7 +310,76 @@ class BuildDatabase(object):
                 self.logger.debug('directory {} exists'.format(self._modelFolder))
                 pass
             svm.save(join(self._modelFolder, self._modelPrefixName + str(self._current)))
-            svmModels.append(svm)
+            self.svmModels.append(svm)
+
+
+    def _predict(self):
+        """
+         load all trained SVM models and predict current captured frame
+        :return:
+        """
+        self._captureManager.enterFrame()
+        currentImage = self._captureManager.frame
+        graySnapshot = cv.cvtColor(currentImage, cv.COLOR_BGR2GRAY)
+        self._captureManager.exitFrame()
+        i = 1
+        if graySnapshot is not None:
+            for svm in self.svmModels:
+                #create  keypoints detector and descriptor extractor
+                self.detector = cv.xfeatures2d.SIFT_create()
+                self.extract = cv.xfeatures2d.SIFT_create()
+
+                #create a flann matcher
+                FLANN_INDEX_KDTREE = 0
+                indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+                searchParams = dict(checks=50)
+                self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
+
+                # create a bowImgDescriptorExtractor
+                self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
+                #create a bag-of-word K means trainer with 40 clusters
+                self.bowKmeansTrainer = cv.BOWKMeansTrainer(40)
+
+
+                try:
+                    # insert the other typeid's first positive training image
+                    # as the negative training samples for this typeid to bowKmeansTrainer
+                    for j in range(1, STATES_NUM, 1):
+                        if j != i:
+                            self.bowKmeansTrainer.add(self.extract_sift(self._path(j, self.positive, 1)))
+
+                    #insert positive training samples to bowKmeansTrainer   # which might be more than typeid
+                    for j in range(self._trainingFrameCount):
+                        self.bowKmeansTrainer.add(self.extract_sift(self._path(i, self.positive, j)))
+                except Exception as e:
+                    self.logger.error(e)
+                    raise ValueError
+
+                # generate vocabulary
+                voc = self.bowKmeansTrainer.cluster()
+                self.extractBow.setVocabulary(voc)
+
+                bowFeature = self.extractBow.compute(graySnapshot, self.detector.detect(graySnapshot, self.interestedMask))
+
+                pred = svm.predict(bowFeature)
+                if pred[1][0][0] == 1.0:
+                    cv.putText(currentImage,'matched with svm model {}'.format(i), (10,30),
+                               cv.FONT_HERSHEY_COMPLEX,1,(0,255,0), 2, cv.LINE_AA)
+                    cv.imshow('BOW + SVM success {}'.format(i), currentImage)
+
+                    self.logger.info('currentImage matched with svm model {}'.format(i))
+                else:
+                    cv.putText(currentImage,'NOT matched with svm model {}'.format(i), (10,30),
+                               cv.FONT_HERSHEY_COMPLEX,1,(0,0,255), 2, cv.LINE_AA)
+                    cv.imshow('BOW + SVM failure {}'.format(i), currentImage)
+                    self.logger.info('currentImage does NOT match with svm model {}'.format(i))
+                cv.waitKey(10)
+
+                i += 1
+
+            cv.destroyAllWindows()
+
+
 
 
 
@@ -318,7 +404,7 @@ class BuildDatabase(object):
 
         pass
 
-STATES_NUM = 3
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="standard training image sets build up")
@@ -350,7 +436,7 @@ if __name__ == "__main__":
 
 
     solution = BuildDatabase(logger, "build database", args.deviceId,
-                             range(0, STATES_NUM, 1), args.portId, args.duration,
+                             range(1, STATES_NUM, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture)

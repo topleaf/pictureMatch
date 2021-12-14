@@ -591,8 +591,8 @@ cameraResH = 1080
 scale = 2
 wP = 300*scale
 hP = 300*scale
-SY,EY = 256, 756
-SX,EX = 688, 1230
+SY,EY = 416, 960
+SX,EX = 768, 1364
 MAX_DES_DIFF_PER = 0.34     # allowable maximum descriptors number difference in percentage when comparing 2 images
 MIN_MATCHED_PER =0.70       # threshold , minimum matched descriptors number in percentage when comparing 2 images
 import argparse, os.path
