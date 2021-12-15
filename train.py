@@ -28,16 +28,17 @@ from os.path import join
 import cv2 as cv
 from cv2 import xfeatures2d
 import numpy as np
+import pickle
 
-STATES_NUM = 4
-SY,EY = 149, 707
-SX,EX = 261, 754
+STATES_NUM = 9
+SY,EY = 26, 814
+SX,EX = 150, 826
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP,folderName,roiFolderName,featureFolder,
-                 imgFormat,modelFolder,modelPrefixName,skipCapture=True):
+                 imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -81,18 +82,25 @@ class BuildDatabase(object):
         self.negative = 'neg-'
         self._modelFolder = modelFolder
         self._modelPrefixName = modelPrefixName
+        self._bowExtractorListFilename = 'bowExtractorList'
+        self._maskFileName = 'maskZone'
         self.interestedMask = None      # define a region of interest after get image from frame
         self.BOW_CLUSTER_NUM = 200  # bag of visual words cluster number
         self.expectedSvmModelId = 1  # designated model id to be applied to current image
         self.svmModels = []
         self.vocs = []
         self.extractBowList = []
+        self._onDisplayId = 1
+        self._retrainModel = reTrainModel
 
 
 
     def run(self):
+
         #  step 1: capture and save all positive training images to respective image folders/pos-x
         self._captureAndSaveAllImages()
+        if not self._retrainModel:
+            return
         #  step 2: training each SVM models and save them to disk.
         self._trainSVMModels()
 
@@ -346,6 +354,18 @@ class BuildDatabase(object):
             svm.save(join(self._modelFolder, self._modelPrefixName + str(self._current)))
             self.svmModels.append(svm)
 
+        # save all of them to disk for future reload use if self._retrainModel is False
+        try:
+
+            np.save(join(self._modelFolder, self._bowExtractorListFilename), self.vocs)
+
+            np.save(join(self._modelFolder, self._maskFileName),
+                    self.interestedMask)
+        except Exception as e:
+            self.logger.error(e)
+            raise ValueError
+
+
 
     def makeJudgement(self):
         """
@@ -353,6 +373,48 @@ class BuildDatabase(object):
          if currently captured frame are match or not, show result in windows
         :return:
         """
+        if not self._retrainModel:  # reload svm models/extractBowList/interestedMask from disk
+            for rootdir,dirname,files in walk(self._modelFolder):
+                files = sorted(files)
+                self.svmModels.clear()
+                for file in files:
+                    if self._modelPrefixName in file:
+                        self.svmModels.append(cv.ml.SVM_load(join(self._modelFolder, file)))
+                        self.logger.info('reload SVM model:{}'.format(file))
+                    elif self._bowExtractorListFilename in file:
+                        self.extractBowList.clear()
+                        try:
+                            vocs = np.load(join(self._modelFolder,file))
+                        except Exception as e:
+                            self.logger.error(e)
+                            raise ValueError
+
+                        for voc in vocs:
+                            #create  keypoints detector and descriptor extractor
+                            self.detector = cv.xfeatures2d.SIFT_create()
+                            self.extract = cv.xfeatures2d.SIFT_create()
+
+                            #create a flann matcher
+                            FLANN_INDEX_KDTREE = 0
+                            indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+                            searchParams = {} #dict(checks=50)
+                            self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
+
+                            # create a bowImgDescriptorExtractor
+                            self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
+                            self.extractBow.setVocabulary(voc)
+                            self.extractBowList.append(self.extractBow)
+
+                        self.logger.info('reload vocs file from {} and reconstruct extractBowList '.format(file))
+                    elif self._maskFileName in file:
+                        try:
+                            self.interestedMask = np.load(join(self._modelFolder, file))
+                        except Exception as e:
+                            self.logger.error('failed to load maskfile:{}'.format(e))
+                            raise ValueError
+                        self.logger.info('reload interestedMask from {}'.format(file))
+
+
         while self._windowManager.isWindowCreated:
             self._captureManager.enterFrame()
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
@@ -382,7 +444,7 @@ class BuildDatabase(object):
             self.logger.info('save screenshoot to snapshot.png')
             self._captureManager.save('snapshot.png')
         elif keyCode in range(ord('1'), ord('9')+1, 1): # simulate expected SVM model id 1~9
-            if keyCode <= ord('1') + len(self.svmModels):
+            if keyCode < ord('1') + len(self.svmModels):
                 self.expectedSvmModelId = int(chr(keyCode))
 
                 self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
@@ -391,16 +453,22 @@ class BuildDatabase(object):
             else:
                 self.logger.warning('you chose a too large number, '
                                     'must be less than svm model numbers {}'.format(len(self.svmModels)))
-        # elif keyCode == ord('n') or k == ord('N'):  # simulate load next playback id image
-        #     playbackId += 1
-        #     if playbackId == len(queryImgDataBase):
-        #         playbackId = 0
-        #     reloadNeeded = True
-        # elif keyCode == ord('b') or k == ord('B'):  # simulate load previous playback id image
-        #     playbackId -= 1
-        #     if playbackId < 0:
-        #         playbackId = len(queryImgDataBase)-1
-        #     reloadNeeded = True
+        elif keyCode == ord('n') or keyCode == ord('N'):  # simulate move DUT to next image
+            self._onDisplayId += 1
+            if self._onDisplayId == STATES_NUM:
+                self._onDisplayId = 1
+            command = self._communicationManager.send(self._onDisplayId)
+            response = self._communicationManager.getResponse()
+            if response[:-1] == command:
+                self.logger.info('===>>> get valid response from DUT,DUT moves to next image of type {}'.format(self._onDisplayId))
+        elif keyCode == ord('b') or keyCode == ord('B'):  # simulate move DUT to previous image
+            self._onDisplayId -= 1
+            if self._onDisplayId < 1:
+                self._onDisplayId = STATES_NUM - 1
+            command = self._communicationManager.send(self._onDisplayId)
+            response = self._communicationManager.getResponse()
+            if response[:-1] == command:
+                self.logger.info('===>>> get valid response from DUT,DUT moves to previous image of type {}'.format(self._onDisplayId))
         else:
             self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
 
@@ -423,6 +491,7 @@ if __name__ == "__main__":
     parser.add_argument("--imageFormat", dest='imageFormat',help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
     parser.add_argument("--skipCapture", dest='skipCapture',help='do not overwrite existing image files [0,1]', default = True, type=int)
     parser.add_argument("--modelFolder", dest='modelFolder',help='folder name to store trained SVM models', default = './models', type=str)
+    parser.add_argument("--reTrain", dest='reTrain',help='retrain SVM models or NOT [0,1]', default = True, type=int)
 
     args = parser.parse_args()
 
@@ -441,7 +510,8 @@ if __name__ == "__main__":
                              range(1, STATES_NUM, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
-                             modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture)
+                             modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
+                             reTrainModel = args.reTrain)
     try:
         solution.run()
         solution.makeJudgement()

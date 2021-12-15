@@ -251,17 +251,18 @@ class CaptureManager:
             score = pred[0][0]
             self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
             if result[0][0] == 1.0:
-                if score <= -0.99:
+                if score <= -0.98:
                     cv.putText(self._frame, 'matched with svm model {},score is {:.4f}'
                                .format(self._expectedModelId, score), (10, 50),
                                cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
                     self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
                 else:
-                    cv.putText(self._frame, 'NOT matched with svm model {}'.format(self._expectedModelId), (10, 50),
+                    cv.putText(self._frame, 'NOT matched with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, 50),
                                cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
-            self._snapWindowManager.show(self._frame, self._frame.shape[1], 210, True)
+            self._snapWindowManager.show(self._frame, 20, 100, True)
         else:
             self.logger.warning('failed to retrieve a frame from camera,skip predicting')
 
