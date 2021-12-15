@@ -85,7 +85,10 @@ class CaptureManager:
         self._frame = None
         self._channel = 0
         self._imageFileName = None
-        self._targetFileName = None     # use current frame to  compare with which image file?
+        self._expectedModelId = None     # use current frame to  compare with which trained Svm model?
+        self._svm = None
+        self._bowExtractor = None
+        self._interestedMask = None     # region of interest to be compared with trained model in self._frame
         self._enteredFrame = False
         self._compareResultList = compareResultList
         self._matchThreshold = 0.8
@@ -148,7 +151,7 @@ class CaptureManager:
 
     @property
     def isComparingTarget(self):
-        return self._targetFileName is not None
+        return self._expectedModelId is not None
 
     def enterFrame(self):
         """
@@ -163,14 +166,14 @@ class CaptureManager:
     def exitFrame(self):
         """
         draw to window, write to files , release the frame
-        :return:
+        :return: None , if not successfully retrieve a frame
         """
         # check whether any grabbed frame is retrievable.
         # the getter may retrieve and cache the frame
         if self.frame is None:
             self._enteredFrame = False
             self.logger.warning('in exitFrame: self._frame is None, retrieve an empty frame from camera')
-            return
+            return None
 
         # self.logger.debug('in exitFrame(): get valid frame, display it ')
         # draw to the windowPreview , if any
@@ -189,14 +192,17 @@ class CaptureManager:
             self._imageFileName = None
 
 
-        # compare it with target image , if needed
+        # compare it with target trained model , if needed
         if self.isComparingTarget:
             self._compare()
-            self._targetFileName = None
+            self._expectedModelId = None
             
         # release the frame
         self._frame = None
         self._enteredFrame = False
+
+    def closeCamera(self):
+        self._capture.release()
 
     def save(self, filename):
         """
@@ -207,58 +213,97 @@ class CaptureManager:
         self._imageFileName = filename
         return '0'
 
-    def setCompareFile(self, filename):
+    def setCompareModel(self, expectedModelId,svmModelList, bowExtractorsList, interestedMask):
         """
-        set targetFileName to be loaded and compare with current frame
+        set SVM expectedModelId to be used to compare with current frame
         :param filename:
         :return:
         """
-        self._targetFileName = str(filename) + '.png'
+        self._expectedModelId = expectedModelId-1
+        self._svm = svmModelList[self._expectedModelId]
+        self._bowExtractor = bowExtractorsList[self._expectedModelId]
+        self._interestedMask = interestedMask
 
-    def _convert2bipolar(self, img):
-        onedim = np.reshape(img, -1)
-        m = int(onedim.mean())
-        return cv.threshold(img, m, 255, cv.THRESH_BINARY)
 
+    # def _convert2bipolar(self, img):
+    #     onedim = np.reshape(img, -1)
+    #     m = int(onedim.mean())
+    #     return cv.threshold(img, m, 255, cv.THRESH_BINARY)
 
     def _compare(self):
         """
-        use cv.matchTemplate to compare targetImg with current frame
-        append maxloc,minloc,maxval,minval to self._compareResultList
-        threshold is likelyhood of matched criteria, between 0.0 - 1.0,
-        the larger, the stricter
+        use designated svm model to predict current frame, give matched or not matched verdict
+        show them on screen of snapshot window
         :return:
         """
-        targetImg = cv.imread(self._targetFileName)
+        graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
 
-        # get image of the ROI in target picture, removing unrelated background,
-        # projecting the ROI to (wP,hP) size coordination system
-        targetImg = isolateROI(targetImg, False, False,
-                               wP=self._warpImgSize[0], hP=self._warpImgSize[1])
-        cv.imwrite(self._targetFileName.split('.')[0]+'_targetROI.png', targetImg)
+        if graySnapshot is not None and self._svm is not None \
+                and self._bowExtractor is not None:
 
-        templateImg = isolateROI(self._frame, False,True,
-                                 wP=self._warpImgSize[0], hP=self._warpImgSize[1])
-        cv.imwrite(self._targetFileName.split('.')[0]+'_template.png', templateImg)
+            #create  keypoints detector
+            detector = cv.xfeatures2d.SIFT_create()
 
-        result = cv.matchTemplate(targetImg, templateImg, cv.TM_CCOEFF_NORMED)
+            bowFeature = self._bowExtractor.compute(graySnapshot, detector.detect(graySnapshot, self._interestedMask))
 
-        minval, maxval, minloc, maxloc = cv.minMaxLoc(result)
+            _,result = self._svm.predict(bowFeature)
+            a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
+            score = pred[0][0]
+            self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
+            if result[0][0] == 1.0:
+                if score <= -0.99:
+                    cv.putText(self._frame, 'matched with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, 50),
+                               cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                    self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
+                else:
+                    cv.putText(self._frame, 'NOT matched with svm model {}'.format(self._expectedModelId), (10, 50),
+                               cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
 
-        yloc, xloc = np.where(result >= self._matchThreshold)
-        self.logger.info('maxval = {},length of xloc is {}'.format(maxval, len(xloc)))
-        rectangles = []
-        for (x, y) in zip(xloc, yloc):
-            rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
-            rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
-        rectangles, weights = cv.groupRectangles(rectangles, 1, 0.2)
-        for (x, y, w, h) in rectangles:
-            cv.rectangle(targetImg, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                    self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+            self._snapWindowManager.show(self._frame, self._frame.shape[1], 210, True)
+        else:
+            self.logger.warning('failed to retrieve a frame from camera,skip predicting')
 
-        # cv.imwrite(self._targetFileName.split('.')[0]+"_result.png", result)
-        cv.imwrite(self._targetFileName.split('.')[0]+"_match.png", targetImg)
-        self._compareResultList.append(maxval)
 
+    # def _compare(self):
+    #     """
+    #     use cv.matchTemplate to compare targetImg with current frame
+    #     append maxloc,minloc,maxval,minval to self._compareResultList
+    #     threshold is likelyhood of matched criteria, between 0.0 - 1.0,
+    #     the larger, the stricter
+    #     :return:
+    #     """
+    #     targetImg = cv.imread(self._targetFileName)
+    #
+    #     # get image of the ROI in target picture, removing unrelated background,
+    #     # projecting the ROI to (wP,hP) size coordination system
+    #     targetImg = isolateROI(targetImg, False, False,
+    #                            wP=self._warpImgSize[0], hP=self._warpImgSize[1])
+    #     cv.imwrite(self._targetFileName.split('.')[0]+'_targetROI.png', targetImg)
+    #
+    #     templateImg = isolateROI(self._frame, False,True,
+    #                              wP=self._warpImgSize[0], hP=self._warpImgSize[1])
+    #     cv.imwrite(self._targetFileName.split('.')[0]+'_template.png', templateImg)
+    #
+    #     result = cv.matchTemplate(targetImg, templateImg, cv.TM_CCOEFF_NORMED)
+    #
+    #     minval, maxval, minloc, maxloc = cv.minMaxLoc(result)
+    #
+    #     yloc, xloc = np.where(result >= self._matchThreshold)
+    #     self.logger.info('maxval = {},length of xloc is {}'.format(maxval, len(xloc)))
+    #     rectangles = []
+    #     for (x, y) in zip(xloc, yloc):
+    #         rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
+    #         rectangles.append((int(x), int(y), self._warpImgSize[0],self._warpImgSize[1]))
+    #     rectangles, weights = cv.groupRectangles(rectangles, 1, 0.2)
+    #     for (x, y, w, h) in rectangles:
+    #         cv.rectangle(targetImg, (x, y), (x + w, y + h), (0, 0, 255), 2)
+    #
+    #     # cv.imwrite(self._targetFileName.split('.')[0]+"_result.png", result)
+    #     cv.imwrite(self._targetFileName.split('.')[0]+"_match.png", targetImg)
+    #     self._compareResultList.append(maxval)
+    #
 
     # def _compare(self):
     #     """
