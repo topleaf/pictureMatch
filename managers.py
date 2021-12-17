@@ -12,7 +12,7 @@ class WindowManager:
         self._windowName = windowName
         self.keyPressCallback = keyPressCallback
         self._isWindowCreated = False
-        self._isDrawRect = True
+        self._isDrawRect = False
         self._rectCords = None  # a rectangle range (x,y,w,h) inside this window
         self._keyPoints = None  # keypoints detected to be shown in this window
         pass
@@ -86,7 +86,7 @@ class WindowManager:
             if self.rectCords is not None:
                 cv.rectangle(frame, (self._rectCords[0], self._rectCords[1]),
                           (self._rectCords[0] + self._rectCords[2]-1,
-                             self._rectCords[1] + self._rectCords[3]-1), (0, 0, 255), 3)
+                             self._rectCords[1] + self._rectCords[3]-1), (0, 255, 0), 3)
             if self._keyPoints is not None:
                 frame = cv.drawKeypoints(image=frame, outImage=frame, keypoints=self._keyPoints, flags=4, color=(51,163,236))
         width = int(frame.shape[1])
@@ -117,8 +117,10 @@ class CaptureManager:
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600)):
         self.logger = logger
-        self._capture = cv.VideoCapture(deviceId)
-        self._setCaptureResolution(width, height)
+        self._capture = None
+        self._deviceId = deviceId
+        self._cameraWidth = width
+        self._cameraHeight = height
         self.previewWindowManager = previewWindowManger
         self.shouldMirrorPreview=shouldMirrorPreview
         self._snapWindowManager = snapWindowManager
@@ -134,6 +136,17 @@ class CaptureManager:
         self._matchThreshold = 0.8
         self._warpImgSize = warpImgSize
         self._trainingImg = None       # expected training img, to be shown
+        self.w = 0          # initial snapshot window left coordination
+
+    def openCamera(self):
+        self._capture = cv.VideoCapture(self._deviceId)
+        if not self._capture.isOpened():
+            raise Exception('Could not open video device {}'.format(self._deviceId))
+        self._setCaptureResolution(self._cameraWidth, self._cameraHeight)
+
+    @property
+    def cameraIsOpened(self):
+        return self._capture.isOpened()
 
     def _setCaptureResolution(self,width,height):
         """
@@ -217,26 +230,34 @@ class CaptureManager:
             self.logger.warning('in exitFrame: self._frame is None, retrieve an empty frame from camera')
             return None
 
+        # compare it with target trained model , if needed
+        if self.isComparingTarget:
+            self._compare()
+            self._expectedModelId = None
+
         # self.logger.debug('in exitFrame(): get valid frame, display it ')
         # draw to the windowPreview , if any
         if self.previewWindowManager is not None:
             if self.shouldMirrorPreview:
                 mirroredFrame = np.fliplr(self._frame).copy()
-                self.previewWindowManager.show(mirroredFrame, 10, 10)
+                self.w, h = self.previewWindowManager.show(mirroredFrame, 10, 10, True)
             else:
-                self.previewWindowManager.show(self._frame, 10, 10)
+                self.w, h = self.previewWindowManager.show(self._frame, 10, 10, True)
+
+                # visualize the expectedModelId's first standard image in snapWindow
+            if self._snapWindowManager is not None and self._trainingImg is not None:
+                self._snapWindowManager.show(self._trainingImg.copy(), self.w, 10, True)
+
+
 
         # write to image file, if any
         if self.isWritingImage:
             self.logger.debug('in exitFrame(),write frame to file {}'.format(self._imageFileName))
             cv.imwrite(self._imageFileName, self._frame)
-            self._snapWindowManager.show(self._frame, self._frame.shape[1]+410, 10)
+            self._snapWindowManager.show(self._frame, self.w, 10, True)
             self._imageFileName = None
 
-        # compare it with target trained model , if needed
-        if self.isComparingTarget:
-            self._compare()
-            self._expectedModelId = None
+
             
         # release the frame
         self._frame = None
@@ -284,7 +305,6 @@ class CaptureManager:
 
         if graySnapshot is not None and grayTrain is not None\
             and self._svm is not None and self._bowExtractor is not None:
-
             #create  keypoints detector
             detector = cv.xfeatures2d.SIFT_create()
 
@@ -303,20 +323,19 @@ class CaptureManager:
             self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
             if result[0][0] == 1.0:
                 if score <= -0.98:
-                    cv.putText(self._frame, 'matched with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, 50),
-                               cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                    cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                     self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
                 else:
-                    cv.putText(self._frame, 'NOT matched with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, 50),
-                               cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
+                    cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
-            # visualize the live captured image in preview Window
-            w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
-            # visualize the expectedModelId's first standard image in snapWindow
-            self._snapWindowManager.show(self._trainingImg.copy(), w, 10, True)
+            # # visualize the live captured image in preview Window
+            # w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
+
         else:
             self.logger.warning('failed to retrieve a frame from camera,skip predicting')
 

@@ -23,15 +23,16 @@ from managers import WindowManager,CaptureManager,CommunicationManager
 from edgeDetect import extractValidROI
 import logging
 import argparse
-from os import walk, mkdir
+from os import walk, mkdir,rmdir,remove,removedirs
 from os.path import join
 import cv2 as cv
-from cv2 import xfeatures2d
 import numpy as np
+import time
 
-STATES_NUM = 2
-SY,EY = 38, 530
-SX,EX = 604, 1060
+DELAY_IN_SECONDS = 1
+STATES_NUM = 9
+SY,EY = 155, 725
+SX,EX = 768, 1277
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -48,7 +49,7 @@ class BuildDatabase(object):
 
         self.logger = logger
         self._compareResultList = []
-        self._snapshotWindowManager = WindowManager("snapshot Window", None)
+        self._snapshotWindowManager = WindowManager("Expected Sample", None)
         self._windowManager = WindowManager(windowName, self.onKeyPress)
 
         self._captureManager = CaptureManager(logger, captureDeviceId,
@@ -91,7 +92,7 @@ class BuildDatabase(object):
         self.extractBowList = []
         self._onDisplayId = 1
         self._retrainModel = reTrainModel
-        self._drawRect = True   # draw a red rectangle over interested area in live image
+        self._drawRect = False   # draw a red rectangle over interested area in live image
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
 
 
@@ -171,7 +172,8 @@ class BuildDatabase(object):
         try:
             mkdir(self._folderName)
         except FileExistsError as e:
-            self.logger.debug('image folder %s exists' %self._folderName)
+            self.logger.debug('image folder %s exists' % self._folderName)
+            # rmdir(self._folderName)
         if self._skipCapture:
             self.logger.debug('skip overwriting')
         else:
@@ -184,8 +186,12 @@ class BuildDatabase(object):
                     command = self._communicationManager.send(self._current)
                     response = self._communicationManager.getResponse()
                     if response[:-1] == command:
-                        self.logger.info('===>>> get valid response, start capturing and saving'
-                                         ' positive training images for type {}'.format(self._current))
+                        self.logger.info('===>>> get valid response, wait for {} second,\n'
+                                         ' then start capturing and saving'
+                                         ' positive training images for type {}'.format(DELAY_IN_SECONDS,self._current))
+                        time.sleep(DELAY_IN_SECONDS)
+                        self._captureManager.openCamera()
+
                         try:
                             newFolder = join(self._folderName, str(self._current))
                             mkdir(newFolder)
@@ -205,6 +211,8 @@ class BuildDatabase(object):
                             self._waitFrameCount += 1
                             self._captureManager.exitFrame()
                             self._windowManager.processEvents()
+                        if self._captureManager.cameraIsOpened:
+                            self._captureManager.closeCamera()
 
                     elif response == b'':
                         self.logger.debug('no response after few seconds timeout')
@@ -392,7 +400,7 @@ class BuildDatabase(object):
                     elif self._bowExtractorListFilename in file:
                         self.extractBowList.clear()
                         try:
-                            vocs = np.load(join(self._modelFolder,file))
+                            vocs = np.load(join(self._modelFolder, file))
                         except Exception as e:
                             self.logger.error(e)
                             raise ValueError
@@ -422,7 +430,7 @@ class BuildDatabase(object):
                             raise ValueError
                         self.logger.info('reload interestedMask from {}'.format(file))
 
-
+        self._captureManager.openCamera()
         while self._windowManager.isWindowCreated:
             self._captureManager.enterFrame()
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
@@ -430,6 +438,7 @@ class BuildDatabase(object):
                                                  self._expectedTrainingImg)
             self._captureManager.exitFrame()
             self._windowManager.processEvents()
+        self._captureManager.closeCamera()
 
 
 
@@ -464,10 +473,10 @@ class BuildDatabase(object):
                     self.logger.error('training sample file {} deleted? {}'.
                                       format(firstExpectedTrainingFileLocation, e))
                 assert self._expectedTrainingImg is not None
-                self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
-                                                     self.extractBowList,self.interestedMask,
-                                                     self._expectedTrainingImg)
-                self.logger.info('use SVM model {} to judge current frame'.format(self.expectedSvmModelId))
+                # self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
+                #                                      self.extractBowList,self.interestedMask,
+                #                                      self._expectedTrainingImg)
+                self.logger.info('use SVM model {} to judge next frame'.format(self.expectedSvmModelId))
             else:
                 self.logger.warning('you chose a too large number, '
                                     'must be less than svm model numbers {}'.format(len(self.svmModels)))
