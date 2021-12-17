@@ -469,22 +469,24 @@ class CommunicationManager:
         # self._commandBody = b'\x00\x00'
         self._expectedReponseLen = 18
 
-    # def _verifyCheckSum(self, content):
-    #     """
-    #     calculate checksum of the content
-    #
-    #     :param self:
-    #     :param content: bytes
-    #     :return:  bytes with checksum included
-    #     """
-    #     checksum = 0
-    #     for i in range(len(content)):
-    #         checksum += content[i]
-    #
-    #     checksum &= 0xFF
-    #     checksum = checksum.to_bytes(1, 'big')
-    #     content += checksum
-    #     return content
+
+    def _commandMapping(self, picId):
+        """
+        translate picId to control bytes sent to DUT
+        :param picId:  int from 1-65535
+        :return: 13-byte length bytes, lower 4 bits in every bytes is effective
+        """
+        controlInt = pow(2, picId) - 1
+        controlBytes = []
+        for i in range(13):
+            lastFourBits = controlInt & 0x0F
+            controlInt >>= 4
+            controlBytes.insert(0, lastFourBits)
+
+        command = self._commandPrefix
+        for i in range(len(controlBytes)):
+            command += controlBytes[i].to_bytes(1, 'big')
+        return command
 
     def send(self, picId):
         """
@@ -494,11 +496,15 @@ class CommunicationManager:
         """
         # newContent = (lambda x: 0x01 << x-1 if x > 0 else 0)(picId)  # 0: 00, 1: 01, 2:02, 3:04, 4:08
 
-        command = self._commandPrefix + picId.to_bytes(1, 'big')*13
-        # command = self._composeCommandWithCheckSum(command)
+        # command = self._commandPrefix + picId.to_bytes(1, 'big')*13
+        command = self._commandMapping(picId)
         retLen = self._ser.write(command)
         self._expectedReponseLen = retLen+1
         return command
+
+
+
+
 
     def getResponse(self):
         """

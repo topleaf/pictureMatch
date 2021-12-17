@@ -185,7 +185,7 @@ class BuildDatabase(object):
                     assert self._current in range(1, STATES_NUM+1)
                     command = self._communicationManager.send(self._current)
                     response = self._communicationManager.getResponse()
-                    if response[:-1] == command:
+                    if response[:10] == command[:10]:
                         self.logger.info('===>>> get valid response, wait for {} second,\n'
                                          ' then start capturing and saving'
                                          ' positive training images for type {}'.format(DELAY_IN_SECONDS,self._current))
@@ -486,16 +486,16 @@ class BuildDatabase(object):
                 self._onDisplayId = 1
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
-            if response[:-1] == command:
-                self.logger.info('===>>> get valid response from DUT,DUT moves to next image of type {}'.format(self._onDisplayId))
+            if response[:10] == command[:10]:
+                self.logger.info('===>>> get valid response from DUT,\nDUT moves to next image type {}'.format(self._onDisplayId))
         elif keyCode == ord('b') or keyCode == ord('B'):  # simulate move DUT to previous image
             self._onDisplayId -= 1
             if self._onDisplayId < 1:
                 self._onDisplayId = STATES_NUM
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
-            if response[:-1] == command:
-                self.logger.info('===>>> get valid response from DUT,DUT moves to previous image of type {}'.format(self._onDisplayId))
+            if response[:10] == command[:10]:
+                self.logger.info('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(self._onDisplayId))
         elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
             self._drawRect = True
             self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
