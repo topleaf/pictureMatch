@@ -28,11 +28,10 @@ from os.path import join
 import cv2 as cv
 from cv2 import xfeatures2d
 import numpy as np
-import pickle
 
-STATES_NUM = 9
-SY,EY = 26, 814
-SX,EX = 150, 826
+STATES_NUM = 2
+SY,EY = 38, 530
+SX,EX = 604, 1060
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -92,7 +91,8 @@ class BuildDatabase(object):
         self.extractBowList = []
         self._onDisplayId = 1
         self._retrainModel = reTrainModel
-
+        self._drawRect = True   # draw a red rectangle over interested area in live image
+        self._expectedTrainingImg = None  # load expected svmmodel's first training image
 
 
     def run(self):
@@ -172,54 +172,62 @@ class BuildDatabase(object):
             mkdir(self._folderName)
         except FileExistsError as e:
             self.logger.debug('image folder %s exists' %self._folderName)
-            if self._skipCapture:
-                self.logger.debug('skip overwriting')
-                return
+        if self._skipCapture:
+            self.logger.debug('skip overwriting')
+        else:
+            for self._current in self._predefinedPatterns:
+                response = b''
+                retry = 0
+                while response == b'' and retry < 3:
+                    self.logger.debug('send command to switch to {},retry={}'.format(self._current, retry))
+                    assert self._current in range(1, STATES_NUM+1)
+                    command = self._communicationManager.send(self._current)
+                    response = self._communicationManager.getResponse()
+                    if response[:-1] == command:
+                        self.logger.info('===>>> get valid response, start capturing and saving'
+                                         ' positive training images for type {}'.format(self._current))
+                        try:
+                            newFolder = join(self._folderName, str(self._current))
+                            mkdir(newFolder)
+                        except FileExistsError as e:
+                            self.logger.debug('OK. training image folder %s exists' %newFolder)
 
+                        self._waitFrameCount = 0
+                        while self._windowManager.isWindowCreated and self._waitFrameCount <= \
+                                self._trainingFrameCount:
+                            self._captureManager.enterFrame()
+                            if self._waitFrameCount < self._trainingFrameCount:
+                                # capture and save the next frame img to file
+                                # in current directory by the name of pos-1.png, ..., pos-100.png
+                                self.__testResults.append(
+                                    self._captureManager.save(join(newFolder, self.positive + str(self._waitFrameCount) +
+                                                              '.' + self._imgFormat)))
+                            self._waitFrameCount += 1
+                            self._captureManager.exitFrame()
+                            self._windowManager.processEvents()
 
-        for self._current in self._predefinedPatterns:
-            response = b''
-            retry = 0
-            while response == b'' and retry < 3:
-                self.logger.debug('send command to switch to {},retry={}'.format(self._current, retry))
-                assert self._current in range(STATES_NUM)
-                command = self._communicationManager.send(self._current)
-                response = self._communicationManager.getResponse()
-                if response[:-1] == command:
-                    self.logger.info('===>>> get valid response, start capturing and saving'
-                                     ' positive training images for type {}'.format(self._current))
-                    try:
-                        newFolder = join(self._folderName, str(self._current))
-                        mkdir(newFolder)
-                    except FileExistsError as e:
-                        self.logger.debug('OK. training image folder %s exists' %newFolder)
+                    elif response == b'':
+                        self.logger.debug('no response after few seconds timeout')
+                        retry += 1
+                    else:
+                        self.logger.error("Receive a mismatched response from controller,skip this pic :{}".format(response))
+                        self.__testResults.append('O')
+                        break
 
-                    self._waitFrameCount = 0
-                    while self._windowManager.isWindowCreated and self._waitFrameCount <= \
-                            self._trainingFrameCount:
-                        self._captureManager.enterFrame()
-                        if self._waitFrameCount < self._trainingFrameCount:
-                            # capture and save the next frame img to file
-                            # in current directory by the name of pos-1.png, ..., pos-100.png
-                            self.__testResults.append(
-                                self._captureManager.save(join(newFolder, self.positive + str(self._waitFrameCount) +
-                                                          '.' + self._imgFormat)))
-                        self._waitFrameCount += 1
-                        self._captureManager.exitFrame()
-                        self._windowManager.processEvents()
-
-                elif response == b'':
-                    self.logger.debug('no response after few seconds timeout')
-                    retry += 1
-                else:
-                    self.logger.error("Receive a mismatched response from controller,skip this pic :{}".format(response))
-                    self.__testResults.append('O')
-                    break
-
-            if retry == 3:
-                self.logger.debug('pic_id:{},communication timeout,no response from controller after 3 times retry!'.format(self._current))
-                self.__testResults.append('N')
-                continue
+                if retry == 3:
+                    self.logger.debug('pic_id:{},communication timeout,no response from controller after 3 times retry!'.format(self._current))
+                    self.__testResults.append('N')
+                    continue
+        # load expected training sample
+        firstExpectedTrainingFileLocation = join(self._folderName,
+                                                 str(self.expectedSvmModelId),
+                                                 self.positive +'0.' + self._imgFormat)
+        self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
+        if self._expectedTrainingImg is None:
+            self.logger.error('training sample file {} deleted?'
+                              'please set --skipCapture 0 and rerun'.
+                              format(firstExpectedTrainingFileLocation))
+            raise ValueError
 
 
     def extract_sift(self,fn):
@@ -279,7 +287,7 @@ class BuildDatabase(object):
             try:
                 # insert the other typeid's first positive training image
                 # as the negative training samples for this typeid to bowKmeansTrainer
-                for i in range(1, STATES_NUM, 1):
+                for i in range(1, STATES_NUM+1, 1):
                     if i != self._current:
                         fileLocation = self._path(i, self.positive, 1)
                         self.logger.debug('add negative training sample {} to model {} bowKmeansTrainer'.format(
@@ -332,7 +340,7 @@ class BuildDatabase(object):
                 trainData.extend(self._bowFeatures(trainfileLocation))
                 trainLabels.append(1)
 
-            for i in range(1, STATES_NUM, 1):
+            for i in range(1, STATES_NUM+1, 1):
                 if self._current != i:
                     trainfileLocation = self._path(i, self.positive, 1)
                     self.logger.debug('put negative training bowFeature sample extracted from {} to SVM model {} '.format(
@@ -418,7 +426,8 @@ class BuildDatabase(object):
         while self._windowManager.isWindowCreated:
             self._captureManager.enterFrame()
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
-                                                 self.extractBowList, self.interestedMask)
+                                                 self.extractBowList, self.interestedMask,
+                                                 self._expectedTrainingImg)
             self._captureManager.exitFrame()
             self._windowManager.processEvents()
 
@@ -446,16 +455,25 @@ class BuildDatabase(object):
         elif keyCode in range(ord('1'), ord('9')+1, 1): # simulate expected SVM model id 1~9
             if keyCode < ord('1') + len(self.svmModels):
                 self.expectedSvmModelId = int(chr(keyCode))
-
+                try:
+                    firstExpectedTrainingFileLocation = join(self._folderName,
+                                                             str(self.expectedSvmModelId),
+                                                             self.positive +'0.' + self._imgFormat)
+                    self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
+                except Exception as e:
+                    self.logger.error('training sample file {} deleted? {}'.
+                                      format(firstExpectedTrainingFileLocation, e))
+                assert self._expectedTrainingImg is not None
                 self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
-                                                     self.extractBowList,self.interestedMask)
+                                                     self.extractBowList,self.interestedMask,
+                                                     self._expectedTrainingImg)
                 self.logger.info('use SVM model {} to judge current frame'.format(self.expectedSvmModelId))
             else:
                 self.logger.warning('you chose a too large number, '
                                     'must be less than svm model numbers {}'.format(len(self.svmModels)))
         elif keyCode == ord('n') or keyCode == ord('N'):  # simulate move DUT to next image
             self._onDisplayId += 1
-            if self._onDisplayId == STATES_NUM:
+            if self._onDisplayId == STATES_NUM+1:
                 self._onDisplayId = 1
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
@@ -464,11 +482,25 @@ class BuildDatabase(object):
         elif keyCode == ord('b') or keyCode == ord('B'):  # simulate move DUT to previous image
             self._onDisplayId -= 1
             if self._onDisplayId < 1:
-                self._onDisplayId = STATES_NUM - 1
+                self._onDisplayId = STATES_NUM
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
             if response[:-1] == command:
                 self.logger.info('===>>> get valid response from DUT,DUT moves to previous image of type {}'.format(self._onDisplayId))
+        elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
+            self._drawRect = True
+            self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            self._snapshotWindowManager.setDrawRect(self._drawRect)
+            self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            self._windowManager.setDrawRect(self._drawRect)
+            self.logger.debug('draw rectangle')
+        elif keyCode == ord('u') or keyCode == ord('U'):  #undraw rectangle over interestedMask Area
+            self._drawRect = False
+            self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            self._snapshotWindowManager.setDrawRect(self._drawRect)
+            self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            self._windowManager.setDrawRect(self._drawRect)
+            self.logger.debug('undraw rectangle')
         else:
             self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
 
@@ -506,8 +538,8 @@ if __name__ == "__main__":
     logger.info(args)
 
 
-    solution = BuildDatabase(logger, "build database", args.deviceId,
-                             range(1, STATES_NUM, 1), args.portId, args.duration,
+    solution = BuildDatabase(logger, "live capture window", args.deviceId,
+                             range(1, STATES_NUM+1, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,

@@ -12,7 +12,36 @@ class WindowManager:
         self._windowName = windowName
         self.keyPressCallback = keyPressCallback
         self._isWindowCreated = False
+        self._isDrawRect = True
+        self._rectCords = None  # a rectangle range (x,y,w,h) inside this window
+        self._keyPoints = None  # keypoints detected to be shown in this window
         pass
+
+    def setKeypoints(self, keypoints):
+        self._keyPoints = keypoints
+
+    @property
+    def rectCords(self):
+        return self._rectCords
+
+    def setRectCords(self, x, y, w, h):
+        """
+        set rectangle coordinations to be drawn in this window
+        :param x:
+        :param y:
+        :param w:
+        :param h:
+        :return:
+        """
+        self._rectCords = x, y, w, h
+
+    @property
+    def isDrawRect(self):
+        return self._isDrawRect
+
+    def setDrawRect(self, value):
+        if value in [True, False]:
+            self._isDrawRect = value
 
     def _getCurrentScreenRes(self):
         """
@@ -48,18 +77,29 @@ class WindowManager:
         :param frame:
         :param x:
         :param y:
-        :param resize: if resize to window to fit into display screen ratio
-        :return:
+        :param resize: if resize to window to fit into display screen ratio, window takes 1/4 screen
+        :return: width,height after resizing
         """
         cv.moveWindow(self._windowName, x, y)
+        #draw a red rectangle over the region specified by self._rectCords
+        if self._isDrawRect:
+            if self.rectCords is not None:
+                cv.rectangle(frame, (self._rectCords[0], self._rectCords[1]),
+                          (self._rectCords[0] + self._rectCords[2]-1,
+                             self._rectCords[1] + self._rectCords[3]-1), (0, 0, 255), 3)
+            if self._keyPoints is not None:
+                frame = cv.drawKeypoints(image=frame, outImage=frame, keypoints=self._keyPoints, flags=4, color=(51,163,236))
+        width = int(frame.shape[1])
+        height = int(frame.shape[0])
         if resize:
-            scaleX = self._screenResolution[0]/frame.shape[1]
-            scaleY = self._screenResolution[0]/frame.shape[0]
+            scaleX = self._screenResolution[0]/frame.shape[1]/2
+            scaleY = self._screenResolution[1]/frame.shape[0]/2
             scale = min(scaleX, scaleY)
             width = int(frame.shape[1]*scale)
             height = int(frame.shape[0]*scale)
             cv.resizeWindow(self._windowName, width, height)
         cv.imshow(self._windowName, frame)
+        return width, height
 
     def destroyWindow(self):
         cv.destroyWindow(self._windowName)
@@ -93,6 +133,7 @@ class CaptureManager:
         self._compareResultList = compareResultList
         self._matchThreshold = 0.8
         self._warpImgSize = warpImgSize
+        self._trainingImg = None       # expected training img, to be shown
 
     def _setCaptureResolution(self,width,height):
         """
@@ -153,6 +194,7 @@ class CaptureManager:
     def isComparingTarget(self):
         return self._expectedModelId is not None
 
+
     def enterFrame(self):
         """
         capture the next frame, if any
@@ -161,7 +203,7 @@ class CaptureManager:
         assert not self._enteredFrame, 'previous enterFrame() has no matching exitFrame()'
         if self._capture is not None:
             self._enteredFrame = self._capture.grab()
-            self.logger.debug('in enterFrame:grab() returns {}'.format(self._enteredFrame))
+            # self.logger.debug('in enterFrame:grab() returns {}'.format(self._enteredFrame))
 
     def exitFrame(self):
         """
@@ -191,7 +233,6 @@ class CaptureManager:
             self._snapWindowManager.show(self._frame, self._frame.shape[1]+410, 10)
             self._imageFileName = None
 
-
         # compare it with target trained model , if needed
         if self.isComparingTarget:
             self._compare()
@@ -213,23 +254,25 @@ class CaptureManager:
         self._imageFileName = filename
         return '0'
 
-    def setCompareModel(self, expectedModelId,svmModelList, bowExtractorsList, interestedMask):
+    def setCompareModel(self, expectedModelId, svmModelList,
+                        bowExtractorsList, interestedMask,
+                        trainingImg):
         """
         set SVM expectedModelId to be used to compare with current frame
         :param filename:
         :return:
         """
-        self._expectedModelId = expectedModelId-1
-        self._svm = svmModelList[self._expectedModelId]
-        self._bowExtractor = bowExtractorsList[self._expectedModelId]
+        self._expectedModelId = expectedModelId
+        self._svm = svmModelList[self._expectedModelId-1]
+        self._bowExtractor = bowExtractorsList[self._expectedModelId-1]
         self._interestedMask = interestedMask
+        self._trainingImg = trainingImg
 
 
     # def _convert2bipolar(self, img):
     #     onedim = np.reshape(img, -1)
     #     m = int(onedim.mean())
     #     return cv.threshold(img, m, 255, cv.THRESH_BINARY)
-
     def _compare(self):
         """
         use designated svm model to predict current frame, give matched or not matched verdict
@@ -237,16 +280,24 @@ class CaptureManager:
         :return:
         """
         graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+        grayTrain = cv.cvtColor(self._trainingImg, cv.COLOR_BGR2GRAY)
 
-        if graySnapshot is not None and self._svm is not None \
-                and self._bowExtractor is not None:
+        if graySnapshot is not None and grayTrain is not None\
+            and self._svm is not None and self._bowExtractor is not None:
 
             #create  keypoints detector
             detector = cv.xfeatures2d.SIFT_create()
 
-            bowFeature = self._bowExtractor.compute(graySnapshot, detector.detect(graySnapshot, self._interestedMask))
+            #set keypoints in preview and snapshot window so they have this
+            # information in case user pressed 'D' key to show them on window
+            keypoints = detector.detect(graySnapshot, self._interestedMask)
+            self.previewWindowManager.setKeypoints(keypoints)
+            kp1 = detector.detect(grayTrain, self._interestedMask)
+            self._snapWindowManager.setKeypoints(kp1)
 
-            _,result = self._svm.predict(bowFeature)
+            bowFeature = self._bowExtractor.compute(graySnapshot, keypoints)
+
+            _, result = self._svm.predict(bowFeature)
             a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
             score = pred[0][0]
             self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
@@ -262,7 +313,10 @@ class CaptureManager:
                                cv.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
-            self._snapWindowManager.show(self._frame, 20, 100, True)
+            # visualize the live captured image in preview Window
+            w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
+            # visualize the expectedModelId's first standard image in snapWindow
+            self._snapWindowManager.show(self._trainingImg.copy(), w, 10, True)
         else:
             self.logger.warning('failed to retrieve a frame from camera,skip predicting')
 
