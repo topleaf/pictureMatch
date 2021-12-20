@@ -20,7 +20,7 @@ image id =15 whose negative  trainingImages are stored in /trainImages/15/neg-1.
 svm1, svm2, ... svm15 are 15 different models, trained to detect if any given image belongs to image 1, ... image15 or not
 """
 from managers import WindowManager,CaptureManager,CommunicationManager
-from edgeDetect import extractValidROI
+from edgeDetect import extractValidROI, getRequiredContours
 import logging
 import argparse
 from os import walk, mkdir,rmdir,remove,removedirs
@@ -246,12 +246,16 @@ class BuildDatabase(object):
         """
 
         im  = cv.imread(fn, 0)
+        # remove noise introduced by camera, pixel dance
+        kernel = np.ones((5, 5))
+        erodeImage, _, _ = getRequiredContours(im, 5, 63, 118,kernel,
+                                            cornerNumber=4, draw=False,
+                                            returnErodeImage=True)
+
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
-        # self.interestedMask[0:im.shape[0], 0:im.shape[1]] = np.uint8(255)
         self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
-        # cv.imshow('mask', self.interestedMask)
-        keypoints = self.detector.detect(im, mask=self.interestedMask)
+        keypoints = self.detector.detect(erodeImage, mask=self.interestedMask)
         keypoints, features = self.extract.compute(im, keypoints)
         return features
 
@@ -263,12 +267,14 @@ class BuildDatabase(object):
         :return:  its descriptor
         """
         im = cv.imread(fn, 0)
-        # # set up a mask to select interested zone only
-        # self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
-        # # self.interestedMask[0:im.shape[0], 0:im.shape[1]] = np.uint8(255)
-        # self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
+        # remove noise introduced by camera, pixel dance
+        kernel = np.ones((5, 5))
+        erodeImage, _, _ = getRequiredContours(im, 5, 63, 118,kernel,
+                                               cornerNumber=4, draw=False,
+                                               returnErodeImage=True)
+        # use previously-setup mask to select the same interested zone only
         keypoints = self.detector.detect(im, mask=self.interestedMask)
-        features = self.extractBow.compute(im, keypoints)    # based on vocabulary in self.extractBow
+        features = self.extractBow.compute(erodeImage, keypoints)  # based on vocabulary in self.extractBow
         return features
 
 

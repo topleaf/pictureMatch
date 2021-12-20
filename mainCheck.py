@@ -19,7 +19,10 @@ phase 2: development start on Dec 2,2021
 new feature, considering refactor code,
  1.support for multiple training images load/detectAndCompute feature,
  plan for future improvements to polish GUI in phase 3
- 
+
+ Dec 19:
+ SVM models completes, predict accuracy to be improved.
+
 phase 3:
  1. add a tkinter GUI ?
      
