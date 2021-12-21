@@ -30,9 +30,9 @@ import numpy as np
 import time
 
 DELAY_IN_SECONDS = 1
-STATES_NUM = 9
-SY,EY = 155, 725
-SX,EX = 768, 1277
+STATES_NUM = 19
+SY,EY = 63, 647
+SX,EX = 562, 1096
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -92,7 +92,7 @@ class BuildDatabase(object):
         self.extractBowList = []
         self._onDisplayId = 1
         self._retrainModel = reTrainModel
-        self._drawRect = False   # draw a red rectangle over interested area in live image
+        self._drawOrigin = False   # draw origin snapshot or processed snapshot in live capture window ?
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
 
 
@@ -247,16 +247,18 @@ class BuildDatabase(object):
 
         im  = cv.imread(fn, 0)
         # remove noise introduced by camera, pixel dance
-        kernel = np.ones((5, 5))
-        erodeImage, _, _ = getRequiredContours(im, 5, 63, 118,kernel,
-                                            cornerNumber=4, draw=False,
-                                            returnErodeImage=True)
+        # kernel = np.ones((5, 5))
+        # erodeImage, _, _ = getRequiredContours(im, 5, 23, 66, kernel,
+        #                                     cornerNumber=4, draw=False,
+        #                                     returnErodeImage=True)
 
+        ret, thresh_img = cv.threshold(im, 60, 255, cv.THRESH_BINARY_INV)
+        blur = cv.blur(thresh_img, (9, 9))
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
         self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
-        keypoints = self.detector.detect(erodeImage, mask=self.interestedMask)
-        keypoints, features = self.extract.compute(im, keypoints)
+        keypoints = self.detector.detect(blur, mask=self.interestedMask)
+        keypoints, features = self.extract.compute(blur, keypoints)
         return features
 
 
@@ -268,13 +270,16 @@ class BuildDatabase(object):
         """
         im = cv.imread(fn, 0)
         # remove noise introduced by camera, pixel dance
-        kernel = np.ones((5, 5))
-        erodeImage, _, _ = getRequiredContours(im, 5, 63, 118,kernel,
-                                               cornerNumber=4, draw=False,
-                                               returnErodeImage=True)
+        # kernel = np.ones((5, 5))
+        # erodeImage, _, _ = getRequiredContours(im, 5, 23, 66,kernel,
+        #                                        cornerNumber=4, draw=False,
+        #                                        returnErodeImage=True)
+
+        ret, thresh_img = cv.threshold(im, 60, 255, cv.THRESH_BINARY_INV)
+        blur = cv.blur(thresh_img, (9, 9))
         # use previously-setup mask to select the same interested zone only
-        keypoints = self.detector.detect(im, mask=self.interestedMask)
-        features = self.extractBow.compute(erodeImage, keypoints)  # based on vocabulary in self.extractBow
+        keypoints = self.detector.detect(blur, mask=self.interestedMask)
+        features = self.extractBow.compute(blur, keypoints)  # based on vocabulary in self.extractBow
         return features
 
 
@@ -503,19 +508,23 @@ class BuildDatabase(object):
             if response[:10] == command[:10]:
                 self.logger.info('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(self._onDisplayId))
         elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
-            self._drawRect = True
             self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
-            self._snapshotWindowManager.setDrawRect(self._drawRect)
+            self._snapshotWindowManager.setDrawRect(True)
             self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
-            self._windowManager.setDrawRect(self._drawRect)
+            self._windowManager.setDrawRect(True)
             self.logger.debug('draw rectangle')
         elif keyCode == ord('u') or keyCode == ord('U'):  #undraw rectangle over interestedMask Area
-            self._drawRect = False
             self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
-            self._snapshotWindowManager.setDrawRect(self._drawRect)
+            self._snapshotWindowManager.setDrawRect(False)
             self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
-            self._windowManager.setDrawRect(self._drawRect)
+            self._windowManager.setDrawRect(False)
             self.logger.debug('undraw rectangle')
+        elif keyCode == ord('o'):  #show origin image
+            self._captureManager.setDrawOrigin(True)
+            self.logger.debug('show original image in live capture window')
+        elif keyCode == ord('p'):  #show processed image in live capture window
+            self._captureManager.setDrawOrigin(False)
+            self.logger.debug('show processed image in live capture window')
         else:
             self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
 

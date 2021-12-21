@@ -96,7 +96,7 @@ class CameraJitterPlot:
         plt.scatter(x, r, color='red')
         # plt.scatter(x, x1, color='cyan')
         plt.xlabel('sample count #')
-        plt.ylabel('r/g/b value or gap value')
+        plt.ylabel('R/G/B value')
 
         print('gaps value range is [{},{}] seconds, mean is {},std={}'.format(np.min(x1), np.max(x1),np.mean(x1),np.std(x1)))
         print('blue value range is [{},{}],mean is {},std={}'.format(np.min(b), np.max(b),np.mean(b),np.std(b)))

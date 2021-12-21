@@ -137,12 +137,18 @@ class CaptureManager:
         self._warpImgSize = warpImgSize
         self._trainingImg = None       # expected training img, to be shown
         self.w = 0          # initial snapshot window left coordination
+        self._showOrigin = True     # show original image without processing in live preview window
 
     def openCamera(self):
         self._capture = cv.VideoCapture(self._deviceId)
         if not self._capture.isOpened():
             raise Exception('Could not open video device {}'.format(self._deviceId))
         self._setCaptureResolution(self._cameraWidth, self._cameraHeight)
+
+    def setDrawOrigin(self, value):
+        if value in (True, False):
+            self._showOrigin = value
+            self.logger.debug('setDrawOrigin to {}'.format(value))
 
     @property
     def cameraIsOpened(self):
@@ -301,41 +307,62 @@ class CaptureManager:
         :return:
         """
         graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
-        grayTrain = cv.cvtColor(self._trainingImg, cv.COLOR_BGR2GRAY)
+        ret, threshSnapshot = cv.threshold(graySnapshot, 60, 255, cv.THRESH_BINARY_INV)
+        blurSnapshot = cv.blur(threshSnapshot, (9, 9))
 
-        if graySnapshot is not None and grayTrain is not None\
+        grayTrain = cv.cvtColor(self._trainingImg, cv.COLOR_BGR2GRAY)
+        ret, threshTrain = cv.threshold(grayTrain, 60, 255, cv.THRESH_BINARY_INV)
+        blurTrain = cv.blur(threshTrain, (9, 9))
+
+        if blurSnapshot is not None and blurTrain is not None\
             and self._svm is not None and self._bowExtractor is not None:
             #create  keypoints detector
             detector = cv.xfeatures2d.SIFT_create()
 
             #set keypoints in preview and snapshot window so they have this
             # information in case user pressed 'D' key to show them on window
-            keypoints = detector.detect(graySnapshot, self._interestedMask)
+            keypoints = detector.detect(blurSnapshot, self._interestedMask)
             self.previewWindowManager.setKeypoints(keypoints)
-            kp1 = detector.detect(grayTrain, self._interestedMask)
+
+            kp1 = detector.detect(blurTrain, self._interestedMask)
             self._snapWindowManager.setKeypoints(kp1)
 
-            bowFeature = self._bowExtractor.compute(graySnapshot, keypoints)
+            bowFeature = self._bowExtractor.compute(blurSnapshot, keypoints)
 
             _, result = self._svm.predict(bowFeature)
             a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
             score = pred[0][0]
             self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
+
+            if self._showOrigin is False:
+                self._frame = blurSnapshot
             if result[0][0] == 1.0:
-                if score <= -0.98:
+                if score <= -0.99:
                     cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
                                .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                     self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
+                else:
+                    cv.putText(self._frame, 'might NOT match with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
+
+                    self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+            elif result[0][0] == -1.0:  # not matched
+                if score >= 0.99:
+                    cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
+                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+                    self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
                 else:
                     cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
                                .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+
             # # visualize the live captured image in preview Window
             # w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
-
         else:
             self.logger.warning('failed to retrieve a frame from camera,skip predicting')
 
