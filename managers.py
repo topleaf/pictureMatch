@@ -115,7 +115,7 @@ class WindowManager:
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
-                 compareResultList = [],  warpImgSize = (600,600)):
+                 compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -138,6 +138,8 @@ class CaptureManager:
         self._trainingImg = None       # expected training img, to be shown
         self.w = 0          # initial snapshot window left coordination
         self._showOrigin = True     # show original image without processing in live preview window
+        self._thresholdValue = threshValue  # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
+        self._blurLevel = blurLevel     # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
 
     def openCamera(self):
         self._capture = cv.VideoCapture(self._deviceId)
@@ -300,19 +302,28 @@ class CaptureManager:
     #     onedim = np.reshape(img, -1)
     #     m = int(onedim.mean())
     #     return cv.threshold(img, m, 255, cv.THRESH_BINARY)
+
+    def preProcess(self, image):
+        """
+        binarize original image according to defined threshold value and blurLevel
+        :param image: original image in bgr mode
+        :return: thresh and blurred image with defined preprocess parameters
+        """
+        gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+        ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        return cv.blur(binary, (self._blurLevel, self._blurLevel))
+
+
     def _compare(self):
         """
         use designated svm model to predict current frame, give matched or not matched verdict
         show them on screen of snapshot window
         :return:
         """
-        graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
-        ret, threshSnapshot = cv.threshold(graySnapshot, 60, 255, cv.THRESH_BINARY_INV)
-        blurSnapshot = cv.blur(threshSnapshot, (9, 9))
-
-        grayTrain = cv.cvtColor(self._trainingImg, cv.COLOR_BGR2GRAY)
-        ret, threshTrain = cv.threshold(grayTrain, 60, 255, cv.THRESH_BINARY_INV)
-        blurTrain = cv.blur(threshTrain, (9, 9))
+        # graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+        # ret, threshSnapshot = cv.threshold(graySnapshot, 84, 255, cv.THRESH_BINARY_INV)
+        blurSnapshot = self.preProcess(self._frame)
+        blurTrain = self.preProcess(self._trainingImg)
 
         if blurSnapshot is not None and blurTrain is not None\
             and self._svm is not None and self._bowExtractor is not None:
@@ -339,24 +350,24 @@ class CaptureManager:
             if result[0][0] == 1.0:
                 if score <= -0.99:
                     cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                     self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
                 else:
                     cv.putText(self._frame, 'might NOT match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
             elif result[0][0] == -1.0:  # not matched
                 if score >= 0.99:
                     cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
                     self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
                 else:
                     cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, graySnapshot.shape[0]-30),
+                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
 
                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))

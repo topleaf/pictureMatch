@@ -18,6 +18,12 @@ image id =15 ,whose positive trainingImages are stored in /trainImages/15/pos-1.
 image id =15 whose negative  trainingImages are stored in /trainImages/15/neg-1.png, neg-2.png .... , pos-x.png
 
 svm1, svm2, ... svm15 are 15 different models, trained to detect if any given image belongs to image 1, ... image15 or not
+
+Date: Dec 23, 2021
+
+use threshTuneTrackbar.py to search for best threshold value manually, use this threshed value to
+create thresh image with blur (9,9) , use this image as target to detect keypoints and compute SIFT features ,
+
 """
 from managers import WindowManager,CaptureManager,CommunicationManager
 from edgeDetect import extractValidROI, getRequiredContours
@@ -30,15 +36,17 @@ import numpy as np
 import time
 
 DELAY_IN_SECONDS = 1
-STATES_NUM = 19
-SY,EY = 63, 647
-SX,EX = 562, 1096
+STATES_NUM = 9
+SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
+SY,EY = 200, 800
+SX,EX = 700, 1262
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP,folderName,roiFolderName,featureFolder,
-                 imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True):
+                 imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
+                 thresholdValue=47, blurLevel=9):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -56,6 +64,8 @@ class BuildDatabase(object):
                                               self._windowManager, self._snapshotWindowManager,
                                               False, videoWidth, videoHeight,
                                               self._compareResultList,
+                                              threshValue=thresholdValue,
+                                              blurLevel=blurLevel
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
@@ -85,12 +95,12 @@ class BuildDatabase(object):
         self._bowExtractorListFilename = 'bowExtractorList'
         self._maskFileName = 'maskZone'
         self.interestedMask = None      # define a region of interest after get image from frame
-        self.BOW_CLUSTER_NUM = 200  # bag of visual words cluster number
+        self.BOW_CLUSTER_NUM = STATES_NUM*10  # bag of visual words cluster number
         self.expectedSvmModelId = 1  # designated model id to be applied to current image
         self.svmModels = []
         self.vocs = []
         self.extractBowList = []
-        self._onDisplayId = 1
+        self._onDisplayId = STATES_NUM
         self._retrainModel = reTrainModel
         self._drawOrigin = False   # draw origin snapshot or processed snapshot in live capture window ?
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
@@ -178,6 +188,9 @@ class BuildDatabase(object):
             self.logger.debug('skip overwriting')
         else:
             for self._current in self._predefinedPatterns:
+                if self._current == SKIP_STATE_ID:
+                    self.logger.debug('skip capturing training sample of id = {}'.format(SKIP_STATE_ID))
+                    continue
                 response = b''
                 retry = 0
                 while response == b'' and retry < 3:
@@ -185,7 +198,7 @@ class BuildDatabase(object):
                     assert self._current in range(1, STATES_NUM+1)
                     command = self._communicationManager.send(self._current)
                     response = self._communicationManager.getResponse()
-                    if response[:10] == command[:10]:
+                    if response[:-1] == command[:]:
                         self.logger.info('===>>> get valid response, wait for {} second,\n'
                                          ' then start capturing and saving'
                                          ' positive training images for type {}'.format(DELAY_IN_SECONDS,self._current))
@@ -245,15 +258,10 @@ class BuildDatabase(object):
         :return:
         """
 
-        im  = cv.imread(fn, 0)
+        im = cv.imread(fn, cv.IMREAD_UNCHANGED)
         # remove noise introduced by camera, pixel dance
-        # kernel = np.ones((5, 5))
-        # erodeImage, _, _ = getRequiredContours(im, 5, 23, 66, kernel,
-        #                                     cornerNumber=4, draw=False,
-        #                                     returnErodeImage=True)
+        blur = self._captureManager.preProcess(im)
 
-        ret, thresh_img = cv.threshold(im, 60, 255, cv.THRESH_BINARY_INV)
-        blur = cv.blur(thresh_img, (9, 9))
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
         self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
@@ -268,15 +276,9 @@ class BuildDatabase(object):
         :param fn:  full path of the image
         :return:  its descriptor
         """
-        im = cv.imread(fn, 0)
+        im = cv.imread(fn, cv.IMREAD_UNCHANGED)
         # remove noise introduced by camera, pixel dance
-        # kernel = np.ones((5, 5))
-        # erodeImage, _, _ = getRequiredContours(im, 5, 23, 66,kernel,
-        #                                        cornerNumber=4, draw=False,
-        #                                        returnErodeImage=True)
-
-        ret, thresh_img = cv.threshold(im, 60, 255, cv.THRESH_BINARY_INV)
-        blur = cv.blur(thresh_img, (9, 9))
+        blur = self._captureManager.preProcess(im)
         # use previously-setup mask to select the same interested zone only
         keypoints = self.detector.detect(blur, mask=self.interestedMask)
         features = self.extractBow.compute(blur, keypoints)  # based on vocabulary in self.extractBow
@@ -312,13 +314,15 @@ class BuildDatabase(object):
                         self.logger.debug('add negative training sample {} to model {} bowKmeansTrainer'.format(
                             fileLocation, self._current
                         ))
-                        features = self.extract_sift(fileLocation)
+                        try:
+                            features = self.extract_sift(fileLocation)
+                        except Exception as e:
+                            self.logger.error('{},negative training sample {} for model {} bowKmeansTrainer'
+                                                ' has no SIFT features'.format(e, fileLocation, self._current))
+                            raise ValueError
+                            return
                         if features is not None:
                             self.bowKmeansTrainer.add(features)
-                        else:
-                            self.logger.warning('negative training sample {} for model {} bowKmeansTrainer'
-                                                ' has no SIFT features'.format(fileLocation, self._current))
-
 
                 #insert positive training samples to bowKmeansTrainer   # which might be more than typeid
                 for i in range(self._trainingFrameCount):
@@ -326,13 +330,16 @@ class BuildDatabase(object):
                     self.logger.debug('add positive training sample {} to model {} bowKmeansTrainer'.format(
                         fileLocation, self._current
                     ))
-                    features = self.extract_sift(fileLocation)
+                    try:
+                        features = self.extract_sift(fileLocation)
+                    except Exception as e:
+                        self.logger.error('{},positive training sample {} for model {} bowKmeansTrainer '
+                                            'has no SIFT features'.format(e, fileLocation, self._current))
+                        raise ValueError
+
                     if features is not None:
                         self.bowKmeansTrainer.add(features)
-                    else:
-                        self.logger.warning('positive training sample {} for model {} bowKmeansTrainer '
-                                            'has no SIFT features'.format(fileLocation, self._current))
-                        raise ValueError
+
 
             except Exception as e:
                 self.logger.error(e)
@@ -491,21 +498,25 @@ class BuildDatabase(object):
             else:
                 self.logger.warning('you chose a too large number, '
                                     'must be less than svm model numbers {}'.format(len(self.svmModels)))
-        elif keyCode == ord('n') or keyCode == ord('N'):  # simulate move DUT to next image
+        elif keyCode == ord('n') or keyCode == ord('N'):  # simulate move DUT to next image,skip one
             self._onDisplayId += 1
             if self._onDisplayId == STATES_NUM+1:
                 self._onDisplayId = 1
+            elif self._onDisplayId == SKIP_STATE_ID:
+                self._onDisplayId += 1
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
-            if response[:10] == command[:10]:
+            if response[:-1] == command[:]:
                 self.logger.info('===>>> get valid response from DUT,\nDUT moves to next image type {}'.format(self._onDisplayId))
-        elif keyCode == ord('b') or keyCode == ord('B'):  # simulate move DUT to previous image
+        elif keyCode == ord('b') or keyCode == ord('B'):  # simulate move DUT to previous image ,skip one
             self._onDisplayId -= 1
             if self._onDisplayId < 1:
                 self._onDisplayId = STATES_NUM
+            elif self._onDisplayId == SKIP_STATE_ID:
+                self._onDisplayId -= 1
             command = self._communicationManager.send(self._onDisplayId)
             response = self._communicationManager.getResponse()
-            if response[:10] == command[:10]:
+            if response[:-1] == command[:]:
                 self.logger.info('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(self._onDisplayId))
         elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
             self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
@@ -533,21 +544,23 @@ class BuildDatabase(object):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="standard training image sets build up")
+    parser = argparse.ArgumentParser(description="standard training image sets build up and predict")
     parser.add_argument("--device", dest='deviceId', help='video camera ID [0,1,2,3]',default=0, type=int)
     parser.add_argument("--port", dest='portId', help='USB serial com port ID [0,1,2,3]',default=0, type=int)
     parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,160 etc]',default=1920, type=int)
     parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,120 etc]',default=1080, type=int)
-    parser.add_argument("--duration", dest='duration',help='how many frames to discard before confirmation',default=30, type=int)
+    parser.add_argument("--duration", dest='duration', help='how many frames to discard before confirmation',default=30, type=int)
     parser.add_argument("--imgWidth", dest='imgWidth', help='set ROI image width [1280,800,640,etc]',default=600, type=int)
     parser.add_argument("--imgHeight", dest='imgHeight', help='set ROI image height [960,600,480,etc]',default=600, type=int)
-    parser.add_argument("--folder", dest='folder',help='folder name to store training image files', default= "./trainingImages", type=str)
-    parser.add_argument("--roiFolder", dest='roiFolder',help='folder name to store Region of Interest training image files', default ='./rois', type=str)
-    parser.add_argument("--featureFolder", dest='featureFolder',help='folder name to store image feature files', default ='./features', type=str)
-    parser.add_argument("--imageFormat", dest='imageFormat',help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
-    parser.add_argument("--skipCapture", dest='skipCapture',help='do not overwrite existing image files [0,1]', default = True, type=int)
-    parser.add_argument("--modelFolder", dest='modelFolder',help='folder name to store trained SVM models', default = './models', type=str)
-    parser.add_argument("--reTrain", dest='reTrain',help='retrain SVM models or NOT [0,1]', default = True, type=int)
+    parser.add_argument("--folder", dest='folder', help='folder name to store training image files', default= "./trainingImages", type=str)
+    parser.add_argument("--roiFolder", dest='roiFolder', help='folder name to store Region of Interest training image files', default ='./rois', type=str)
+    parser.add_argument("--featureFolder", dest='featureFolder', help='folder name to store image feature files', default ='./features', type=str)
+    parser.add_argument("--imageFormat", dest='imageFormat', help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
+    parser.add_argument("--skipCapture", dest='skipCapture', help='do not overwrite existing image files [0,1]', default = True, type=int)
+    parser.add_argument("--modelFolder", dest='modelFolder', help='folder name to store trained SVM models', default = './models', type=str)
+    parser.add_argument("--reTrain", dest='reTrain', help='retrain SVM models or NOT [0,1]', default = True, type=int)
+    parser.add_argument("--threshold", dest='threshold', help='threshold value[1,255]',  type=int)
+    parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
 
     args = parser.parse_args()
 
@@ -561,13 +574,16 @@ if __name__ == "__main__":
 
     logger.info(args)
 
-
+    if args.threshold is None:
+        logger.info('please specify a mandatory CRITICAL training parameter threshold '
+                    'using --threshold t, range is [1,255],\nYou can use threshTuneTrackbar utility to find it!')
+        exit(-1)
     solution = BuildDatabase(logger, "live capture window", args.deviceId,
                              range(1, STATES_NUM+1, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
-                             reTrainModel = args.reTrain)
+                             reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue)
     try:
         solution.run()
         solution.makeJudgement()

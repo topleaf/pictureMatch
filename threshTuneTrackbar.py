@@ -10,6 +10,7 @@ import numpy as np
 from edgeDetect import getRequiredContours,warpImg
 import subprocess
 from managers import CommunicationManager
+from train import STATES_NUM,SKIP_STATE_ID
 import logging
 
 def func(x):
@@ -21,7 +22,6 @@ cameraResH = 1080
 scale = 2
 wP = 300*scale
 hP = 300*scale
-STATES_NUM = 9
 
 def _getCurrentScreenRes():
     """
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     switch = '0 : Origin\n1 : Thresh\n2 : blur\n 3: Canny\n 4: dilate\n 5:erode\n 6:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
     cv2.setTrackbarPos(switch, windowName, 1)
-    cv2.setTrackbarPos(tbThresh, windowName, 60)
+    cv2.setTrackbarPos(tbThresh, windowName, 84)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
     cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
@@ -182,7 +182,7 @@ if __name__ == '__main__':
             displayWindow(windowName,erodeImage,0,0,screenResolution, True)
             # cv2.imshow(windowName, erodeImage)
             if len(conts) != 0:
-                print('hhhh,conts = {}'.format(conts))
+                # print('hhhh,conts = {}'.format(conts))
                 minAreaRectBox = conts[0][2]
                 # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
                 imgWarp = warpImg(erodeImage, minAreaRectBox, wP, hP)
@@ -247,17 +247,21 @@ if __name__ == '__main__':
             _onDisplayId += 1
             if _onDisplayId == STATES_NUM+1:
                 _onDisplayId = 1
+            elif _onDisplayId == SKIP_STATE_ID:
+                _onDisplayId += 1
             command = _communicationManager.send(_onDisplayId)
             response = _communicationManager.getResponse()
-            if response[:10] == command[:10]:
+            if response[:-1] == command[:]:
                 print('===>>> get valid response from DUT,\nDUT moves to next image type {}'.format(_onDisplayId))
         elif k == ord('b') or k == ord('B'):  # simulate move DUT to previous image
             _onDisplayId -= 1
             if _onDisplayId == 0:
                 _onDisplayId = STATES_NUM
+            elif _onDisplayId == SKIP_STATE_ID:
+                _onDisplayId -= 1 
             command = _communicationManager.send(_onDisplayId)
             response = _communicationManager.getResponse()
-            if response[:10] == command[:10]:
+            if response[:-1] == command[:]:
                 print('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(_onDisplayId))
 
 
