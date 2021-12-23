@@ -258,7 +258,7 @@ if __name__ == '__main__':
             if _onDisplayId == 0:
                 _onDisplayId = STATES_NUM
             elif _onDisplayId == SKIP_STATE_ID:
-                _onDisplayId -= 1 
+                _onDisplayId -= 1
             command = _communicationManager.send(_onDisplayId)
             response = _communicationManager.getResponse()
             if response[:-1] == command[:]:

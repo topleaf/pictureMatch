@@ -36,7 +36,7 @@ import numpy as np
 import time
 
 DELAY_IN_SECONDS = 1
-STATES_NUM = 9
+STATES_NUM = 52
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
 SY,EY = 200, 800
 SX,EX = 700, 1262
