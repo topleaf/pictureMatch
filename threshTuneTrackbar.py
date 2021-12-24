@@ -9,14 +9,15 @@ import cv2
 import numpy as np
 from edgeDetect import getRequiredContours,warpImg
 import subprocess
-from managers import CommunicationManager
-from train import STATES_NUM,SKIP_STATE_ID
+from managers import CommunicationManager, STATES_NUM
+from train import SKIP_STATE_ID
 import logging
 
 def func(x):
     pass
 
 
+STATES_NUM += 6
 cameraResW = 1920
 cameraResH = 1080
 scale = 2

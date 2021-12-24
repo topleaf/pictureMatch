@@ -5,6 +5,9 @@ from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
 from edgeDetect import isolateROI
+from os.path import join
+
+STATES_NUM = 52
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
@@ -238,9 +241,10 @@ class CaptureManager:
             self.logger.warning('in exitFrame: self._frame is None, retrieve an empty frame from camera')
             return None
 
+        compareResult = None
         # compare it with target trained model , if needed
         if self.isComparingTarget:
-            self._compare()
+            compareResult = self._compare()
             self._expectedModelId = None
 
         # self.logger.debug('in exitFrame(): get valid frame, display it ')
@@ -270,6 +274,7 @@ class CaptureManager:
         # release the frame
         self._frame = None
         self._enteredFrame = False
+        return compareResult
 
     def closeCamera(self):
         self._capture.release()
@@ -292,16 +297,16 @@ class CaptureManager:
         :return:
         """
         self._expectedModelId = expectedModelId
-        self._svm = svmModelList[self._expectedModelId-1]
-        self._bowExtractor = bowExtractorsList[self._expectedModelId-1]
+        if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
+            self._svm = svmModelList[self._expectedModelId-1]
+            self._bowExtractor = bowExtractorsList[self._expectedModelId-1]
+        else:                           # multi-classfication model id is always  0
+            self._svm = svmModelList[self._expectedModelId]
+            self._bowExtractor = bowExtractorsList[self._expectedModelId]
+
         self._interestedMask = interestedMask
         self._trainingImg = trainingImg
 
-
-    # def _convert2bipolar(self, img):
-    #     onedim = np.reshape(img, -1)
-    #     m = int(onedim.mean())
-    #     return cv.threshold(img, m, 255, cv.THRESH_BINARY)
 
     def preProcess(self, image):
         """
@@ -322,6 +327,8 @@ class CaptureManager:
         """
         # graySnapshot = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
         # ret, threshSnapshot = cv.threshold(graySnapshot, 84, 255, cv.THRESH_BINARY_INV)
+        compareResult = dict(matched=False, predictedClassId=None, score=None)
+
         blurSnapshot = self.preProcess(self._frame)
         blurTrain = self.preProcess(self._trainingImg)
 
@@ -347,35 +354,66 @@ class CaptureManager:
 
             if self._showOrigin is False:
                 self._frame = blurSnapshot
-            if result[0][0] == 1.0:
-                if score <= -0.99:
-                    cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+            if self._expectedModelId != 0: ## using single classification model
+                if result[0][0] == 1.0:
+                    if score <= -0.99:
+                        cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
+                        self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
+                        compareResult['matched'] = True
+
+                    else:
+                        cv.putText(self._frame, 'might NOT match with svm model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
+                        self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+                        compareResult['matched'] = False
+                    compareResult['predictedClassId'] = self._expectedModelId
+                    compareResult['score'] = score
+                elif result[0][0] == -1.0:  # not matched
+                    compareResult['matched'] = False
+                    compareResult['predictedClassId'] = self._expectedModelId
+                    compareResult['score'] = score
+                    if score >= 0.99:
+                        cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+                        self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
+                    else:
+                        cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+
+                        self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+            else:       # use unique multiclassification model to predict
+                predictedClassId = result[0][0]
+                if predictedClassId in range(1, STATES_NUM+1, 1):
+                    cv.putText(self._frame, 'matched with class {},score={:.4f}'
+                               .format(int(predictedClassId), score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-                    self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
-                else:
-                    cv.putText(self._frame, 'might NOT match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
-                               cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
+                    self.logger.info('live image matched with class {},score ={:.4f}'.
+                                     format(int(predictedClassId), score))
+                    compareResult['matched'] = True
+                else:  # not matched
+                    compareResult['matched'] = False
+                    if score >= 0.99:
+                        cv.putText(self._frame, 'Sure No match with any training images,score={:.4f}'
+                                   .format(score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+                        self.logger.info('live image NOT match!!!')
+                    else:
+                        cv.putText(self._frame, 'NOT match with svm model,score is {:.4f}'
+                                   .format(score), (10, blurSnapshot.shape[0]-30),
+                                   cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+                        self.logger.info('currentImage does NOT match with svm model')
 
-                    self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
-            elif result[0][0] == -1.0:  # not matched
-                if score >= 0.99:
-                    cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
-                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
-                    self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
-                else:
-                    cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
-                               .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
-                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
-
-                    self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
-
-            # # visualize the live captured image in preview Window
-            # w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
+                compareResult['predictedClassId'] = int(predictedClassId)
+                compareResult['score'] = score
         else:
             self.logger.warning('failed to retrieve a frame from camera,skip predicting')
+
+        return compareResult
 
 
     # def _compare(self):

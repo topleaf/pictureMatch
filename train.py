@@ -25,7 +25,8 @@ use threshTuneTrackbar.py to search for best threshold value manually, use this 
 create thresh image with blur (9,9) , use this image as target to detect keypoints and compute SIFT features ,
 
 """
-from managers import WindowManager,CaptureManager,CommunicationManager
+
+from managers import WindowManager,CaptureManager,CommunicationManager,STATES_NUM
 from edgeDetect import extractValidROI, getRequiredContours
 import logging
 import argparse
@@ -36,10 +37,10 @@ import numpy as np
 import time
 
 DELAY_IN_SECONDS = 1
-STATES_NUM = 28
+
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
-SY,EY = 292, 902
-SX,EX = 685, 1227
+SY,EY = 212, 809
+SX,EX = 619, 1180
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -95,8 +96,8 @@ class BuildDatabase(object):
         self._bowExtractorListFilename = 'bowExtractorList'
         self._maskFileName = 'maskZone'
         self.interestedMask = None      # define a region of interest after get image from frame
-        self.BOW_CLUSTER_NUM = STATES_NUM*10  # bag of visual words cluster number
-        self.expectedSvmModelId = 1  # designated model id to be applied to current image
+        self.BOW_CLUSTER_NUM = STATES_NUM*50  # bag of visual words cluster number
+        self.expectedSvmModelId = 0  # designated model id (0 is multiclass model) to be applied to current image
         self.svmModels = []
         self.vocs = []
         self.extractBowList = []
@@ -114,7 +115,10 @@ class BuildDatabase(object):
         if not self._retrainModel:
             return
         #  step 2: training each SVM models and save them to disk.
-        self._trainSVMModels()
+        # self._trainSVMModels()
+
+        # or train one multi-classification SVM mode and save to disk
+        self._trainSVMModel()
         training_duration = time.time() - self._startTime
 
         self.logger.info('Training duration is:{} seconds'.format(training_duration))
@@ -245,7 +249,7 @@ class BuildDatabase(object):
                     continue
         # load expected training sample
         firstExpectedTrainingFileLocation = join(self._folderName,
-                                                 str(self.expectedSvmModelId),
+                                                 str(self.expectedSvmModelId+1),
                                                  self.positive +'0.' + self._imgFormat)
         self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
         if self._expectedTrainingImg is None:
@@ -287,6 +291,100 @@ class BuildDatabase(object):
         keypoints = self.detector.detect(blur, mask=self.interestedMask)
         features = self.extractBow.compute(blur, keypoints)  # based on vocabulary in self.extractBow
         return features
+
+    def _trainSVMModel(self):
+        """
+        train one multiple classification SVM model for all STATE_NUM classes
+        :return:
+        """
+        #create  keypoints detector and descriptor extractor
+        self.detector = cv.xfeatures2d.SIFT_create()
+        self.extract = cv.xfeatures2d.SIFT_create()
+
+        #create a flann matcher
+        FLANN_INDEX_KDTREE = 0
+        indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        searchParams = {} #dict(checks=50)
+        self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
+
+
+        #create a bag-of-word K means trainer with 1000 clusters
+        self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
+
+        # create a bowImgDescriptorExtractor
+        self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
+
+        try:
+            # insert all classes'  all training images' SIFT feature into bowKmeansTrainer
+            for i in range(1, STATES_NUM+1, 1):
+                if i != SKIP_STATE_ID:
+                    for j in range(self._trainingFrameCount):
+                        fileLocation = self._path(i, self.positive, j)
+                        self.logger.debug('add training class {} sample {} to bowKmeansTrainer'.format(i,
+                            fileLocation))
+                        try:
+                            features = self.extract_sift(fileLocation)
+                        except Exception as e:
+                            self.logger.error('{},training class {} sample {} for bowKmeansTrainer'
+                                              ' has no SIFT features'.format(e, i, fileLocation))
+                            raise ValueError
+                            return
+                        if features is not None:
+                            self.bowKmeansTrainer.add(features)
+        except Exception as e:
+            self.logger.error(e)
+            raise ValueError
+            return
+
+        # cluster features descriptors from all training images into BOW_CLUSTER_NUM caterogies, it will
+        # serve as vocabulary
+        voc = self.bowKmeansTrainer.cluster()
+        self.extractBow.setVocabulary(voc)
+
+        # remember voc as well as self.extractBow to list for predicting use later
+        self.vocs.append(voc)
+        self.extractBowList.append(self.extractBow)
+
+        # create all classes' positive training samples and marked them with relative labels
+        # self._bowFeatures function will compute bowFeatures based on voc
+        trainData, trainLabels = [], []
+        for classId in range(1, STATES_NUM+1,1):
+            if classId != SKIP_STATE_ID:
+                for i in range(self._trainingFrameCount):
+                    trainfileLocation = self._path(classId,self.positive, i)
+                    self.logger.debug('put class {}  training bowFeature sample extracted from {} to SVM model'.format(
+                        classId, trainfileLocation
+                    ))
+                    trainData.extend(self._bowFeatures(trainfileLocation))
+                    trainLabels.append(classId)
+
+        # create a svm and feed data to train the model
+        print('create unique {}-classification SVM model and train it ....'.format(STATES_NUM))
+        svm = cv.ml.SVM_create()
+        svm.setType(cv.ml.SVM_C_SVC)
+        svm.setGamma(0.5)
+        svm.setC(30)  # trial
+        svm.setKernel(cv.ml.SVM_RBF)
+        svm.train(np.array(trainData), cv.ml.ROW_SAMPLE, np.array(trainLabels))
+        print('{}-classification SVM model training completes!'.format(STATES_NUM))
+        try:
+            mkdir(self._modelFolder)
+        except FileExistsError:
+            self.logger.debug('directory {} exists'.format(self._modelFolder))
+            pass
+
+        # save unique multiclass svm as index 0
+        svm.save(join(self._modelFolder, self._modelPrefixName + str(0)))
+        self.svmModels.append(svm)
+
+        # save all of them to disk for future reload use if self._retrainModel is False
+        try:
+            np.save(join(self._modelFolder, self._bowExtractorListFilename), self.vocs)
+
+            np.save(join(self._modelFolder, self._maskFileName), self.interestedMask)
+        except Exception as e:
+            self.logger.error(e)
+            raise ValueError
 
 
     def _trainSVMModels(self):
@@ -461,9 +559,20 @@ class BuildDatabase(object):
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
                                                  self.extractBowList, self.interestedMask,
                                                  self._expectedTrainingImg)
-            self._captureManager.exitFrame()
+            compareResult = self._captureManager.exitFrame()
+            if compareResult is not None and compareResult['matched']:
+                # load the training sample specified inside compareResult
+                trainingFileLocation = join(self._folderName,
+                                                 str(compareResult['predictedClassId']),
+                                                 self.positive + '0.' + self._imgFormat)
+                self._expectedTrainingImg = cv.imread(trainingFileLocation)
+                if self._expectedTrainingImg is None:
+                    self.logger.error('training sample file {} deleted?'
+                              'please set --skipCapture 0 and rerun'.
+                                  format(trainingFileLocation))
             self._windowManager.processEvents()
         self._captureManager.closeCamera()
+
 
 
 
