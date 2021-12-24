@@ -36,10 +36,10 @@ import numpy as np
 import time
 
 DELAY_IN_SECONDS = 1
-STATES_NUM = 52
+STATES_NUM = 28
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
-SY,EY = 200, 800
-SX,EX = 700, 1262
+SY,EY = 292, 902
+SX,EX = 685, 1227
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -104,6 +104,7 @@ class BuildDatabase(object):
         self._retrainModel = reTrainModel
         self._drawOrigin = False   # draw origin snapshot or processed snapshot in live capture window ?
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
+        self._startTime = time.time()
 
 
     def run(self):
@@ -114,6 +115,9 @@ class BuildDatabase(object):
             return
         #  step 2: training each SVM models and save them to disk.
         self._trainSVMModels()
+        training_duration = time.time() - self._startTime
+
+        self.logger.info('Training duration is:{} seconds'.format(training_duration))
 
 
 
@@ -288,6 +292,9 @@ class BuildDatabase(object):
     def _trainSVMModels(self):
         # training multiple svm models and save them to disk
         for self._current in self._predefinedPatterns:
+            if self._current == SKIP_STATE_ID:
+                self.logger.debug('skip training sample id = {}'.format(SKIP_STATE_ID))
+                continue
             #create  keypoints detector and descriptor extractor
             self.detector = cv.xfeatures2d.SIFT_create()
             self.extract = cv.xfeatures2d.SIFT_create()
@@ -309,7 +316,7 @@ class BuildDatabase(object):
                 # insert the other typeid's first positive training image
                 # as the negative training samples for this typeid to bowKmeansTrainer
                 for i in range(1, STATES_NUM+1, 1):
-                    if i != self._current:
+                    if i != self._current and i != SKIP_STATE_ID:
                         fileLocation = self._path(i, self.positive, 1)
                         self.logger.debug('add negative training sample {} to model {} bowKmeansTrainer'.format(
                             fileLocation, self._current
@@ -326,7 +333,7 @@ class BuildDatabase(object):
 
                 #insert positive training samples to bowKmeansTrainer   # which might be more than typeid
                 for i in range(self._trainingFrameCount):
-                    fileLocation = self._path(self._current,self.positive, i)
+                    fileLocation = self._path(self._current, self.positive, i)
                     self.logger.debug('add positive training sample {} to model {} bowKmeansTrainer'.format(
                         fileLocation, self._current
                     ))
@@ -367,7 +374,7 @@ class BuildDatabase(object):
                 trainLabels.append(1)
 
             for i in range(1, STATES_NUM+1, 1):
-                if self._current != i:
+                if self._current != i and i != SKIP_STATE_ID:
                     trainfileLocation = self._path(i, self.positive, 1)
                     self.logger.debug('put negative training bowFeature sample extracted from {} to SVM model {} '.format(
                         trainfileLocation, self._current
