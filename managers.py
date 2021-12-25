@@ -5,7 +5,6 @@ from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
 from edgeDetect import isolateROI
-from os.path import join
 
 STATES_NUM = 52
 
@@ -143,6 +142,8 @@ class CaptureManager:
         self._showOrigin = True     # show original image without processing in live preview window
         self._thresholdValue = threshValue  # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
         self._blurLevel = blurLevel     # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
+        self._detector = cv.xfeatures2d.SIFT_create()  #SIFT detector
+
 
     def openCamera(self):
         self._capture = cv.VideoCapture(self._deviceId)
@@ -315,8 +316,18 @@ class CaptureManager:
         :return: thresh and blurred image with defined preprocess parameters
         """
         gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-        ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-        return cv.blur(binary, (self._blurLevel, self._blurLevel))
+        # first trial, only do threshold, result is OK
+        # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        # return cv.blur(binary, (self._blurLevel, self._blurLevel))
+
+        # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
+        # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
+        # training time period = 1497 seconds
+        ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
+        imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
+        imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
+        return imgDilate
 
 
     def _compare(self):
@@ -335,14 +346,13 @@ class CaptureManager:
         if blurSnapshot is not None and blurTrain is not None\
             and self._svm is not None and self._bowExtractor is not None:
             #create  keypoints detector
-            detector = cv.xfeatures2d.SIFT_create()
 
             #set keypoints in preview and snapshot window so they have this
             # information in case user pressed 'D' key to show them on window
-            keypoints = detector.detect(blurSnapshot, self._interestedMask)
+            keypoints = self._detector.detect(blurSnapshot, self._interestedMask)
             self.previewWindowManager.setKeypoints(keypoints)
 
-            kp1 = detector.detect(blurTrain, self._interestedMask)
+            kp1 = self._detector.detect(blurTrain, self._interestedMask)
             self._snapWindowManager.setKeypoints(kp1)
 
             bowFeature = self._bowExtractor.compute(blurSnapshot, keypoints)
@@ -350,10 +360,11 @@ class CaptureManager:
             _, result = self._svm.predict(bowFeature)
             a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
             score = pred[0][0]
-            self.logger.info('SVM model id: {}, Class: {:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
+            self.logger.info('SVM model id:{}, Class:{:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
 
             if self._showOrigin is False:
                 self._frame = blurSnapshot
+                self._trainingImg = blurTrain
             if self._expectedModelId != 0: ## using single classification model
                 if result[0][0] == 1.0:
                     if score <= -0.99:
@@ -392,8 +403,10 @@ class CaptureManager:
                     cv.putText(self._frame, 'matched with class {},score={:.4f}'
                                .format(int(predictedClassId), score), (10, blurSnapshot.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-                    self.logger.info('live image matched with class {},score ={:.4f}'.
+                    self.logger.debug('live image matched with class {},score ={:.4f}'.
                                      format(int(predictedClassId), score))
+                    # if predictedClassId in [1, 2, 51, 52]:
+                    #     self.logger.info('bowFeature{}={}'.format(predictedClassId, bowFeature))
                     compareResult['matched'] = True
                 else:  # not matched
                     compareResult['matched'] = False

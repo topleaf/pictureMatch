@@ -24,6 +24,12 @@ Date: Dec 23, 2021
 use threshTuneTrackbar.py to search for best threshold value manually, use this threshed value to
 create thresh image with blur (9,9) , use this image as target to detect keypoints and compute SIFT features ,
 
+Date: Dec 24, 2021
+train one multiple-classification SVM model instead of multiple 2 classification SVM models
+
+Date: Dec 25,2021
+preprocess improvement, after blur/threshold, use erode 1 and dilate 1 with kernel=np.ones((3,3)) to remove noise
+
 """
 
 from managers import WindowManager,CaptureManager,CommunicationManager,STATES_NUM
@@ -39,8 +45,8 @@ import time
 DELAY_IN_SECONDS = 1
 
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
-SY,EY = 212, 809
-SX,EX = 619, 1180
+SY,EY = 178, 812
+SX,EX = 619, 1188
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -90,13 +96,12 @@ class BuildDatabase(object):
         self._warpImgWP, self._warpImgHP = wP, hP
         self._skipCapture = skipCapture
         self.positive = 'pos-'      # positive training samples filename prefix
-        self.negative = 'neg-'
         self._modelFolder = modelFolder
         self._modelPrefixName = modelPrefixName
         self._bowExtractorListFilename = 'bowExtractorList'
         self._maskFileName = 'maskZone'
         self.interestedMask = None      # define a region of interest after get image from frame
-        self.BOW_CLUSTER_NUM = STATES_NUM*50  # bag of visual words cluster number
+        self.BOW_CLUSTER_NUM = STATES_NUM*10  # bag of visual words cluster number
         self.expectedSvmModelId = 0  # designated model id (0 is multiclass model) to be applied to current image
         self.svmModels = []
         self.vocs = []
@@ -106,6 +111,19 @@ class BuildDatabase(object):
         self._drawOrigin = False   # draw origin snapshot or processed snapshot in live capture window ?
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
         self._startTime = time.time()
+        #create  keypoints detector and descriptor extractor
+        self.detector = cv.xfeatures2d.SIFT_create()
+        self.extract = cv.xfeatures2d.SIFT_create()
+        #create a flann matcher
+        FLANN_INDEX_KDTREE = 0
+        indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        searchParams = {} #dict(checks=50)
+        self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
+        # create a bowImgDescriptorExtractor
+        self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
+        #create a bag-of-word K means trainer
+        self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
+
 
 
     def run(self):
@@ -297,27 +315,12 @@ class BuildDatabase(object):
         train one multiple classification SVM model for all STATE_NUM classes
         :return:
         """
-        #create  keypoints detector and descriptor extractor
-        self.detector = cv.xfeatures2d.SIFT_create()
-        self.extract = cv.xfeatures2d.SIFT_create()
-
-        #create a flann matcher
-        FLANN_INDEX_KDTREE = 0
-        indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        searchParams = {} #dict(checks=50)
-        self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
-
-
-        #create a bag-of-word K means trainer with 1000 clusters
-        self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
-
-        # create a bowImgDescriptorExtractor
-        self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
 
         try:
             # insert all classes'  all training images' SIFT feature into bowKmeansTrainer
             for i in range(1, STATES_NUM+1, 1):
                 if i != SKIP_STATE_ID:
+                    self.logger.info('add training samples of class {}  to bowKmeansTrainer'.format(i))
                     for j in range(self._trainingFrameCount):
                         fileLocation = self._path(i, self.positive, j)
                         self.logger.debug('add training class {} sample {} to bowKmeansTrainer'.format(i,
@@ -338,8 +341,10 @@ class BuildDatabase(object):
 
         # cluster features descriptors from all training images into BOW_CLUSTER_NUM caterogies, it will
         # serve as vocabulary
+        self.logger.info('start bowKmeansTrainer cluster calculation')
         voc = self.bowKmeansTrainer.cluster()
         self.extractBow.setVocabulary(voc)
+        self.logger.info('bowKmeansTrainer cluster completes')
 
         # remember voc as well as self.extractBow to list for predicting use later
         self.vocs.append(voc)
@@ -350,6 +355,7 @@ class BuildDatabase(object):
         trainData, trainLabels = [], []
         for classId in range(1, STATES_NUM+1,1):
             if classId != SKIP_STATE_ID:
+                self.logger.info('put positive training samples of class {}  to SVM model'.format(classId))
                 for i in range(self._trainingFrameCount):
                     trainfileLocation = self._path(classId,self.positive, i)
                     self.logger.debug('put class {}  training bowFeature sample extracted from {} to SVM model'.format(
@@ -359,14 +365,14 @@ class BuildDatabase(object):
                     trainLabels.append(classId)
 
         # create a svm and feed data to train the model
-        print('create unique {}-classification SVM model and train it ....'.format(STATES_NUM))
+        self.logger.info('create unique {}-classification SVM model and train it ....'.format(STATES_NUM))
         svm = cv.ml.SVM_create()
         svm.setType(cv.ml.SVM_C_SVC)
         svm.setGamma(0.5)
         svm.setC(30)  # trial
         svm.setKernel(cv.ml.SVM_RBF)
         svm.train(np.array(trainData), cv.ml.ROW_SAMPLE, np.array(trainLabels))
-        print('{}-classification SVM model training completes!'.format(STATES_NUM))
+        self.logger.info('{}-classification SVM model training completes!'.format(STATES_NUM))
         try:
             mkdir(self._modelFolder)
         except FileExistsError:
@@ -393,22 +399,6 @@ class BuildDatabase(object):
             if self._current == SKIP_STATE_ID:
                 self.logger.debug('skip training sample id = {}'.format(SKIP_STATE_ID))
                 continue
-            #create  keypoints detector and descriptor extractor
-            self.detector = cv.xfeatures2d.SIFT_create()
-            self.extract = cv.xfeatures2d.SIFT_create()
-
-            #create a flann matcher
-            FLANN_INDEX_KDTREE = 0
-            indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-            searchParams = {} #dict(checks=50)
-            self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
-
-
-            #create a bag-of-word K means trainer with 1000 clusters
-            self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
-
-            # create a bowImgDescriptorExtractor
-            self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
 
             try:
                 # insert the other typeid's first positive training image
@@ -495,11 +485,8 @@ class BuildDatabase(object):
 
         # save all of them to disk for future reload use if self._retrainModel is False
         try:
-
             np.save(join(self._modelFolder, self._bowExtractorListFilename), self.vocs)
-
-            np.save(join(self._modelFolder, self._maskFileName),
-                    self.interestedMask)
+            np.save(join(self._modelFolder, self._maskFileName), self.interestedMask)
         except Exception as e:
             self.logger.error(e)
             raise ValueError
@@ -527,23 +514,9 @@ class BuildDatabase(object):
                         except Exception as e:
                             self.logger.error(e)
                             raise ValueError
-
                         for voc in vocs:
-                            #create  keypoints detector and descriptor extractor
-                            self.detector = cv.xfeatures2d.SIFT_create()
-                            self.extract = cv.xfeatures2d.SIFT_create()
-
-                            #create a flann matcher
-                            FLANN_INDEX_KDTREE = 0
-                            indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-                            searchParams = {} #dict(checks=50)
-                            self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
-
-                            # create a bowImgDescriptorExtractor
-                            self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
                             self.extractBow.setVocabulary(voc)
                             self.extractBowList.append(self.extractBow)
-
                         self.logger.info('reload vocs file from {} and reconstruct extractBowList '.format(file))
                     elif self._maskFileName in file:
                         try:
@@ -607,9 +580,6 @@ class BuildDatabase(object):
                     self.logger.error('training sample file {} deleted? {}'.
                                       format(firstExpectedTrainingFileLocation, e))
                 assert self._expectedTrainingImg is not None
-                # self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
-                #                                      self.extractBowList,self.interestedMask,
-                #                                      self._expectedTrainingImg)
                 self.logger.info('use SVM model {} to judge next frame'.format(self.expectedSvmModelId))
             else:
                 self.logger.warning('you chose a too large number, '
@@ -639,24 +609,21 @@ class BuildDatabase(object):
             self._snapshotWindowManager.setDrawRect(True)
             self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
             self._windowManager.setDrawRect(True)
-            self.logger.debug('draw rectangle')
+            self.logger.info('draw rectangle/keypoints in region of interest')
         elif keyCode == ord('u') or keyCode == ord('U'):  #undraw rectangle over interestedMask Area
             self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
             self._snapshotWindowManager.setDrawRect(False)
             self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
             self._windowManager.setDrawRect(False)
-            self.logger.debug('undraw rectangle')
+            self.logger.info('undraw rectangle/keypoints in region of interest')
         elif keyCode == ord('o'):  #show origin image
             self._captureManager.setDrawOrigin(True)
-            self.logger.debug('show original image in live capture window')
+            self.logger.info('show original image in live capture window')
         elif keyCode == ord('p'):  #show processed image in live capture window
             self._captureManager.setDrawOrigin(False)
-            self.logger.debug('show processed image in live capture window')
+            self.logger.info('show image after preProcessing in live capture window')
         else:
-            self.logger.debug('unknown key {} pressed'.format(chr(keyCode)))
-
-        pass
-
+            self.logger.info('unknown key {} pressed'.format(chr(keyCode)))
 
 
 if __name__ == "__main__":
@@ -685,7 +652,7 @@ if __name__ == "__main__":
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
     logHandler = logging.StreamHandler()
     logHandler.setFormatter(formatter)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     logger.addHandler(logHandler)
 
     logger.info(args)

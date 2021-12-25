@@ -103,11 +103,11 @@ if __name__ == '__main__':
     drawRect = False
 
     tbThresh = 'threshold'
-    tbCannyThr1 = 'canny threshold low'
-    tbCannyThr2 = 'canny threshold high'
+    tbErodeIter = 'erode iteration'
+    tbDilateIter = 'dilate iteration'
     cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
-    cv2.createTrackbar(tbCannyThr1, windowName, 0, 255, func)
-    cv2.createTrackbar(tbCannyThr2, windowName, 0, 255, func)
+    cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
+    cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
     tbBlurlevel = 'blur level'
     cv2.createTrackbar(tbBlurlevel, windowName, 1, 50, func)
 
@@ -116,24 +116,24 @@ if __name__ == '__main__':
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
     cv2.createTrackbar(tbMaxArea, windowName, 20, 300000, func)
 
-    switch = '0 : Origin\n1 : Thresh\n2 : blur\n 3: Canny\n 4: dilate\n 5:erode\n 6:Contour\n'
+    switch = '0 : Origin\n1 : Thresh\n2 : blur\n 3: Erode first\n 4: dilate first\n 5:erode\n 6:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
-    cv2.setTrackbarPos(switch, windowName, 1)
-    cv2.setTrackbarPos(tbThresh, windowName, 84)
+    cv2.setTrackbarPos(switch, windowName, 3)
+    cv2.setTrackbarPos(tbThresh, windowName, 90)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
     cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
-    cv2.setTrackbarPos(tbCannyThr1, windowName, 23)
-    cv2.setTrackbarPos(tbCannyThr2, windowName, 66)
-    kernel = np.ones((5, 5))
+    cv2.setTrackbarPos(tbErodeIter, windowName, 1)
+    cv2.setTrackbarPos(tbDilateIter, windowName, 1)
+    kernel = np.ones((3, 3))
     while(1):
         if webCam:
             success, img = camera.read()
             if not success:
                 break
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
-        threshold_1 = cv2.getTrackbarPos(tbCannyThr1, windowName)
-        threshold_2 = cv2.getTrackbarPos(tbCannyThr2, windowName)
+        erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
+        dilateIter = cv2.getTrackbarPos(tbDilateIter, windowName)
         blurr_level = cv2.getTrackbarPos(tbBlurlevel, windowName)
         blurr_level = (lambda x: x+1 if x % 2 == 0 else x)(blurr_level)    # avoid even
 
@@ -149,33 +149,45 @@ if __name__ == '__main__':
             ret, thresh_img = cv2.threshold(gray, thresh_level,255,cv2.THRESH_BINARY_INV)
             displayWindow(windowName,thresh_img, 30,0,screenResolution, True)
         elif s == 2:
-            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
             ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
             blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
             cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
                        cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
             print('blurr_level={}'.format(blurr_level))
-            displayWindow(windowName,blur,30,0,screenResolution, True)
+            displayWindow(windowName,thresh_img,30,0,screenResolution, True)
             # cv2.imshow(windowName, blur)
+        # elif s == 3:  canny
+        #     # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+        #     blur = cv2.blur(gray,(blurr_level,blurr_level))
+        #     # retval, thresh = cv2.threshold(blur, erodeIter, 255, cv2.THRESH_BINARY)#|cv2.THRESH_OTSU)
+        #     imgCanny = cv2.Canny(blur, erodeIter, dilateIter)
+        #     displayWindow(windowName,imgCanny,30,0,screenResolution, True)
+        #     # cv2.imshow (windowName, imgCanny)
         elif s == 3:
-            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-            blur = cv2.blur(gray,(blurr_level,blurr_level))
-            # retval, thresh = cv2.threshold(blur, threshold_1, 255, cv2.THRESH_BINARY)#|cv2.THRESH_OTSU)
-            imgCanny = cv2.Canny(blur, threshold_1, threshold_2)
-            displayWindow(windowName,imgCanny,30,0,screenResolution, True)
-            # cv2.imshow (windowName, imgCanny)
-
-        elif s == 4:
-            # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-            blur = cv2.blur(gray,(blurr_level,blurr_level))
-            imgCanny = cv2.Canny(blur, threshold_1, threshold_2)
-            imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
+            ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
+            blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
+            imgErode = cv2.erode(blur, kernel=kernel, iterations=erodeIter)
+            imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=dilateIter)
+            # imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=2)
             displayWindow(windowName,imgDilate,0,0,screenResolution, True)
+        elif s == 4:
+            ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
+            blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
+            imgDilate = cv2.dilate(blur, kernel=kernel, iterations=dilateIter)
+            imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=erodeIter)
+            # imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=2)
+            displayWindow(windowName,imgDilate,0,0,screenResolution, True)
+
+            # # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+            # blur = cv2.blur(gray,(blurr_level,blurr_level))
+            # imgCanny = cv2.Canny(blur, erodeIter, dilateIter)
+            # imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
+            # displayWindow(windowName,imgDilate,0,0,screenResolution, True)
             # cv2.imshow (windowName, imgDilate)
         elif s == 5:
             # show erodeImage
             contours_img = img.copy()
-            erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+            erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, erodeIter, dilateIter,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
@@ -192,7 +204,7 @@ if __name__ == '__main__':
         else:
             # get the lcd Screen part rectangle from original blurred img
             contours_img = img.copy()
-            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, erodeIter, dilateIter,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
@@ -215,7 +227,7 @@ if __name__ == '__main__':
 
         # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
         #         contours_img2, conts2 = \
-        #             getRequiredContours(imgWarp, blurr_level, threshold_1, threshold_2,
+        #             getRequiredContours(imgWarp, blurr_level, erodeIter, dilateIter,
         #                               kernel,
         #                               minArea=4, maxArea=minArea,
         #                               cornerNumber=4, draw=True,
