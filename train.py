@@ -526,8 +526,9 @@ class BuildDatabase(object):
                             raise ValueError
                         self.logger.info('reload interestedMask from {}'.format(file))
 
-        self._captureManager.openCamera()
+
         while self._windowManager.isWindowCreated:
+            self._captureManager.openCamera()
             self._captureManager.enterFrame()
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
                                                  self.extractBowList, self.interestedMask,
@@ -544,7 +545,8 @@ class BuildDatabase(object):
                               'please set --skipCapture 0 and rerun'.
                                   format(trainingFileLocation))
             self._windowManager.processEvents()
-        self._captureManager.closeCamera()
+            self._captureManager.closeCamera()
+
 
 
 

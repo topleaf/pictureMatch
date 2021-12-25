@@ -105,9 +105,13 @@ if __name__ == '__main__':
     tbThresh = 'threshold'
     tbErodeIter = 'erode iteration'
     tbDilateIter = 'dilate iteration'
+    tbCannyLow = 'Canny low'
+    tbCannyHigh = 'Canny high'
     cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
     cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
+    cv2.createTrackbar(tbCannyLow, windowName, 0, 255, func)
+    cv2.createTrackbar(tbCannyHigh, windowName, 0, 255, func)
     tbBlurlevel = 'blur level'
     cv2.createTrackbar(tbBlurlevel, windowName, 1, 50, func)
 
@@ -125,6 +129,8 @@ if __name__ == '__main__':
     cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
     cv2.setTrackbarPos(tbErodeIter, windowName, 1)
     cv2.setTrackbarPos(tbDilateIter, windowName, 1)
+    cv2.setTrackbarPos(tbCannyLow, windowName, 10)
+    cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
     kernel = np.ones((3, 3))
     while(1):
         if webCam:
@@ -132,6 +138,8 @@ if __name__ == '__main__':
             if not success:
                 break
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
+        cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
+        cannyHigh = cv2.getTrackbarPos(tbCannyHigh, windowName)
         erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
         dilateIter = cv2.getTrackbarPos(tbDilateIter, windowName)
         blurr_level = cv2.getTrackbarPos(tbBlurlevel, windowName)
@@ -146,7 +154,7 @@ if __name__ == '__main__':
             displayWindow(windowName,img,30,0,screenResolution, True)
             # cv2.imshow(windowName, img)
         elif s == 1:
-            ret, thresh_img = cv2.threshold(gray, thresh_level,255,cv2.THRESH_BINARY_INV)
+            ret, thresh_img = cv2.threshold(gray, thresh_level,255,cv2.THRESH_TOZERO)#cv2.THRESH_BINARY_INV)
             displayWindow(windowName,thresh_img, 30,0,screenResolution, True)
         elif s == 2:
             ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
@@ -187,11 +195,12 @@ if __name__ == '__main__':
         elif s == 5:
             # show erodeImage
             contours_img = img.copy()
-            erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, erodeIter, dilateIter,
-                                                      kernel,
-                                                      minArea=minArea, maxArea=maxArea,
-                                                      cornerNumber=4, draw=drawRect,
-                                                      returnErodeImage=True)
+            erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
+                                                    erodeIter, dilateIter,
+                                                    kernel,
+                                                    minArea=minArea, maxArea=maxArea,
+                                                    cornerNumber=4, draw=drawRect,
+                                                    returnErodeImage=True,threshLevel=thresh_level)
             displayWindow(windowName,erodeImage,0,0,screenResolution, True)
             # cv2.imshow(windowName, erodeImage)
             if len(conts) != 0:
@@ -204,7 +213,8 @@ if __name__ == '__main__':
         else:
             # get the lcd Screen part rectangle from original blurred img
             contours_img = img.copy()
-            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, erodeIter, dilateIter,
+            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
+                                                                  erodeIter, dilateIter,
                                                       kernel,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
