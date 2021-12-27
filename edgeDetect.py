@@ -9,6 +9,7 @@ from cv2 import xfeatures2d
 from os import walk
 
 
+
 #from filters import SharpenFilter,Embolden5Filter, Embolden3Filter
 
 def rescaleFrame(frame,percent=75):
@@ -154,9 +155,9 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 
 
 # find contours that  are closed graph with minArea,cornerNumber
-def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
+def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
-                        draw=True, returnErodeImage =True):
+                        draw=True, returnErodeImage =True,threshLevel=20):
     """
 
     :param img: original image
@@ -173,10 +174,12 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,kernel,
     """
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     # blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+    ret, thresh_img = cv.threshold(gray, threshLevel,255,cv.THRESH_TOZERO)
+
     blur = cv.blur(gray,(blurr_level,blurr_level))
     imgCanny = cv.Canny(blur, threshold_1,threshold_2)
-    imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=3)
-    imgErode = cv.erode(imgDilate, kernel, iterations=2)
+    imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=dilateIter)
+    imgErode = cv.erode(imgDilate, kernel, iterations=erodeIter)
 
     contours, hierarchy = cv.findContours(imgErode, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
@@ -298,7 +301,7 @@ def isolateROI(img, drawRect , save , blurr_level , threshold_1,
 
     kernel = np.ones((kernelSize, kernelSize))
     contours_img = img.copy()
-    blurred_img, conts , contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,
+    blurred_img, conts , contours_img = getRequiredContours(contours_img, blurr_level, threshold_1, threshold_2,2,3,
                                               kernel,
                                               minArea=minArea, maxArea=maxArea,
                                               cornerNumber=4, draw=drawRect,

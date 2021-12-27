@@ -150,6 +150,8 @@ class CaptureManager:
         if not self._capture.isOpened():
             raise Exception('Could not open video device {}'.format(self._deviceId))
         self._setCaptureResolution(self._cameraWidth, self._cameraHeight)
+        # set camera buffersize to 1
+        self._capture.set(cv.CAP_PROP_BUFFERSIZE, 1)
 
     def setDrawOrigin(self, value):
         if value in (True, False):

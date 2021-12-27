@@ -12,6 +12,7 @@ import subprocess
 from managers import CommunicationManager, STATES_NUM
 from train import SKIP_STATE_ID
 import logging
+import time
 
 def func(x):
     pass
@@ -23,6 +24,10 @@ cameraResH = 1080
 scale = 2
 wP = 300*scale
 hP = 300*scale
+SX, SY = 952, 82
+EX, EY = 1491, 773
+RU_X, RU_Y = 1544, 132
+LB_X, LB_Y = 902, 738
 
 def _getCurrentScreenRes():
     """
@@ -67,6 +72,24 @@ def displayWindow(windowName,frame, x, y, screenResolution,resize=False):
     cv2.imshow(windowName, frame)
     return width, height
 
+cameraPropertyNames={
+        cv2.CAP_PROP_FRAME_WIDTH:'width',
+        cv2.CAP_PROP_FRAME_HEIGHT:'height',
+        cv2.CAP_PROP_BUFFERSIZE:'BufferSize',
+        cv2.CAP_PROP_BRIGHTNESS:"Brightness",
+        cv2.CAP_PROP_CONTRAST:"Contrast",
+        cv2.CAP_PROP_SATURATION:"Saturation",
+        cv2.CAP_PROP_HUE: "Hue",
+        cv2.CAP_PROP_GAIN:'Gain',
+        cv2.CAP_PROP_EXPOSURE:"Exposure",
+        cv2.CAP_PROP_FOCUS: "Focus",
+        cv2.CAP_PROP_APERTURE:'APerture',
+        cv2.CAP_PROP_AUTO_EXPOSURE:'auto exposure',
+        cv2.CAP_PROP_AUTO_WB:'auto WB',
+        cv2.CAP_PROP_AUTOFOCUS: 'autoFocus',
+        cv2.CAP_PROP_CONVERT_RGB:'convertRGB',
+    }
+
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
@@ -84,12 +107,25 @@ if __name__ == '__main__':
         logger.error('Abort!! Please make sure serial port is ready then retry')
         exit(-1)
     webCam = True
+    # cameraProperty = []
     if webCam:
         camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            print('can not open camera 0')
+            exit(-1)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
+        camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, -1)
+        camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # camera.set(cv2.CAP_PROP_HUE, 1.0)
+        # camera.set(cv2.CAP_PROP_AUTO_WB, -1.0)
+        # camera.set(cv2.CAP_PROP_SATURATION,50)
+        camera.set(cv2.CAP_PROP_CONVERT_RGB, 1)
         originalFileName = 'originLiveCapture.png'
-
+        for i, key in enumerate(cameraPropertyNames):
+            # cameraProperty.append(camera.get(key))
+            print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
+        print('\n')
     else:
         originalFileName = "./pictures/6.png"
         img = cv2.imread(originalFileName)
@@ -211,29 +247,36 @@ if __name__ == '__main__':
                 cv2.imshow('warped erode img', imgWarp)
             # end of getcontours
         else:
-            # get the lcd Screen part rectangle from original blurred img
+            # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
-            blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
-                                                                  erodeIter, dilateIter,
-                                                      kernel,
-                                                      minArea=minArea, maxArea=maxArea,
-                                                      cornerNumber=4, draw=drawRect,
-                                                      returnErodeImage=False)
+            roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+            # normalize coordinates to integers
+            box = np.int0(roi_box)
+            imgWarp = warpImg(contours_img, box, wP, hP)
+            cv2.imshow('warped lcd screen img', imgWarp)
+
+            # blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
+            #                                                       erodeIter, dilateIter,
+            #                                           kernel,
+            #                                           minArea=minArea, maxArea=maxArea,
+            #                                           cornerNumber=4, draw=drawRect,
+            #                                           returnErodeImage=False)
+
             displayWindow(windowName,contours_img,0,0,screenResolution, True)
             # cv2.imshow(windowName, contours_img)
-            if len(conts) != 0:
-                print('hhhh,conts = {}'.format(conts))
-                minAreaRectBox = conts[0][2]
-                # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-                imgWarp = warpImg(blurredImg, minAreaRectBox, wP, hP)
-                cv2.imshow('warped lcd screen img', imgWarp)
-
-                if saveLcdScreenMarked:
-                    cv2.imwrite(originalFileName.split('.')[0] +'_detected.png', contours_img)
-                    saveLcdScreenMarked = False
-                if saveWarpImg:
-                    cv2.imwrite(originalFileName.split('.')[0] + '_warpImg.png', imgWarp)
-                    saveWarpImg = False
+            # if len(conts) != 0:
+            #     print('hhhh,conts = {}'.format(conts))
+            #     minAreaRectBox = conts[0][2]
+            #     # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
+            #     imgWarp = warpImg(blurredImg, minAreaRectBox, wP, hP)
+            #     cv2.imshow('warped lcd screen img', imgWarp)
+            #
+            #     if saveLcdScreenMarked:
+            #         cv2.imwrite(originalFileName.split('.')[0] +'_detected.png', contours_img)
+            #         saveLcdScreenMarked = False
+            #     if saveWarpImg:
+            #         cv2.imwrite(originalFileName.split('.')[0] + '_warpImg.png', imgWarp)
+            #         saveWarpImg = False
 
         # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
         #         contours_img2, conts2 = \
@@ -253,7 +296,10 @@ if __name__ == '__main__':
         #                 saveLcdInternal = False
         #
 
-
+        for i, key in enumerate(cameraPropertyNames):
+            # cameraProperty.append(camera.get(key))
+            print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
+        print('\n')
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
             break

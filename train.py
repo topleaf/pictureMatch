@@ -33,7 +33,7 @@ preprocess improvement, after blur/threshold, use erode 1 and dilate 1 with kern
 """
 
 from managers import WindowManager,CaptureManager,CommunicationManager,STATES_NUM
-from edgeDetect import extractValidROI, getRequiredContours
+from edgeDetect import extractValidROI, warpImg
 import logging
 import argparse
 from os import walk, mkdir,rmdir,remove,removedirs
@@ -45,8 +45,19 @@ import time
 DELAY_IN_SECONDS = 1
 
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
-SY,EY = 178, 812
-SX,EX = 619, 1188
+
+scale = 2
+wP = 300*scale
+hP = 300*scale
+SX, SY = 952, 82
+EX, EY = 1491, 773
+RU_X, RU_Y = 1544, 132
+LB_X, LB_Y = 902, 738
+#
+# SX, SY = 911, 87
+# EX, EY = 1500, 756
+# RU_X, RU_Y = 1554, 140
+# LB_X, LB_Y = 900, 732
 
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
@@ -123,6 +134,9 @@ class BuildDatabase(object):
         self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
         #create a bag-of-word K means trainer
         self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
+        self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+        # normalize coordinates to integers
+        self.box = np.int0(self._roi_box)
 
 
 
@@ -287,6 +301,7 @@ class BuildDatabase(object):
         im = cv.imread(fn, cv.IMREAD_UNCHANGED)
         # remove noise introduced by camera, pixel dance
         blur = self._captureManager.preProcess(im)
+        imgWarp = warpImg(blur, self.box, wP, hP)
 
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
@@ -526,9 +541,8 @@ class BuildDatabase(object):
                             raise ValueError
                         self.logger.info('reload interestedMask from {}'.format(file))
 
-
+        self._captureManager.openCamera()
         while self._windowManager.isWindowCreated:
-            self._captureManager.openCamera()
             self._captureManager.enterFrame()
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
                                                  self.extractBowList, self.interestedMask,
@@ -545,7 +559,7 @@ class BuildDatabase(object):
                               'please set --skipCapture 0 and rerun'.
                                   format(trainingFileLocation))
             self._windowManager.processEvents()
-            self._captureManager.closeCamera()
+        self._captureManager.closeCamera()
 
 
 
