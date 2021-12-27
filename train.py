@@ -30,6 +30,9 @@ train one multiple-classification SVM model instead of multiple 2 classification
 Date: Dec 25,2021
 preprocess improvement, after blur/threshold, use erode 1 and dilate 1 with kernel=np.ones((3,3)) to remove noise
 
+Date: Dec 27,2021
+warp interested Region image, detect and compute on warpedImage, use key 'r' to show warped images/keypoints
+set videoCapture property buffersize from default 4 to 1
 """
 
 from managers import WindowManager,CaptureManager,CommunicationManager,STATES_NUM
@@ -49,8 +52,7 @@ SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
 # scale = 2
 # wP = 300*scale
 # hP = 300*scale
-#define roi mask coordinations in WarpImage
-S_MASKX, E_MASKX, S_MASKY, E_MASKY = 20, 600-30, 20, 600-30
+
 SX, SY = 938, 68
 EX, EY = 1485, 766
 RU_X, RU_Y = 1526, 118
@@ -74,7 +76,8 @@ class BuildDatabase(object):
         :param predefinedPatterns:
         :param portId: serial port id: int
         """
-
+        #define roi mask coordinations in WarpImage
+        self._S_MASKX, self._E_MASKX, self._S_MASKY, self._E_MASKY = 20, wP-30, 20, hP-30
         self.logger = logger
         self._compareResultList = []
         self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
@@ -97,7 +100,8 @@ class BuildDatabase(object):
         self._expireSeconds = 5
         self._trainingFrameCount = duration
         self._warpImgWP, self._warpImgHP = wP, hP
-        self._warpImgBox = [(S_MASKX, S_MASKY), (S_MASKX, E_MASKY), (E_MASKX, E_MASKY), (E_MASKX, S_MASKY)]
+        self._warpImgBox = [(self._S_MASKX, self._S_MASKY), (self._S_MASKX, self._E_MASKY),
+                            (self._E_MASKX, self._E_MASKY), (self._E_MASKX, self._S_MASKY)]
         try:
             self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB'+str(portId),
                                                               self._expireSeconds)
@@ -314,7 +318,7 @@ class BuildDatabase(object):
 
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
-        self.interestedMask[S_MASKY:E_MASKY, S_MASKX:E_MASKX] = np.uint8(255)
+        self.interestedMask[self._S_MASKY:self._E_MASKY, self._S_MASKX:self._E_MASKX] = np.uint8(255)
 
         keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
         keypoints, features = self.extract.compute(imgWarp, keypoints)
