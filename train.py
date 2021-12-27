@@ -46,13 +46,15 @@ DELAY_IN_SECONDS = 1
 
 SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
 
-scale = 2
-wP = 300*scale
-hP = 300*scale
-SX, SY = 952, 82
-EX, EY = 1491, 773
-RU_X, RU_Y = 1544, 132
-LB_X, LB_Y = 902, 738
+# scale = 2
+# wP = 300*scale
+# hP = 300*scale
+#define roi mask coordinations in WarpImage
+S_MASKX, E_MASKX, S_MASKY, E_MASKY = 20, 600-30, 20, 600-30
+SX, SY = 938, 68
+EX, EY = 1485, 766
+RU_X, RU_Y = 1526, 118
+LB_X, LB_Y = 889, 730
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -62,7 +64,7 @@ LB_X, LB_Y = 902, 738
 class BuildDatabase(object):
     # discard how many frames before taking a snapshot for comparison
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
-                 duration, videoWidth, videoHeight, wP, hP,folderName,roiFolderName,featureFolder,
+                 duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
                  thresholdValue=47, blurLevel=9):
         """
@@ -75,19 +77,27 @@ class BuildDatabase(object):
 
         self.logger = logger
         self._compareResultList = []
-        self._snapshotWindowManager = WindowManager("Expected Sample", None)
+        self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+
+        # normalize coordinates to integers
+        self.box = np.int0(self._roi_box)
+        self._snapshotWindowManager = WindowManager("Training Sample", None)
         self._windowManager = WindowManager(windowName, self.onKeyPress)
 
         self._captureManager = CaptureManager(logger, captureDeviceId,
                                               self._windowManager, self._snapshotWindowManager,
                                               False, videoWidth, videoHeight,
                                               self._compareResultList,
+                                              warpImgSize=(wP, hP),
                                               threshValue=thresholdValue,
-                                              blurLevel=blurLevel
+                                              blurLevel=blurLevel,
+                                              roiBox=self.box
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
         self._trainingFrameCount = duration
+        self._warpImgWP, self._warpImgHP = wP, hP
+        self._warpImgBox = [(S_MASKX, S_MASKY), (S_MASKX, E_MASKY), (E_MASKX, E_MASKY), (E_MASKX, S_MASKY)]
         try:
             self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB'+str(portId),
                                                               self._expireSeconds)
@@ -104,7 +114,7 @@ class BuildDatabase(object):
         self._roiFolderName = roiFolderName
         self._featureFolderName = featureFolder
         self._imgFormat = imgFormat
-        self._warpImgWP, self._warpImgHP = wP, hP
+
         self._skipCapture = skipCapture
         self.positive = 'pos-'      # positive training samples filename prefix
         self._modelFolder = modelFolder
@@ -134,9 +144,7 @@ class BuildDatabase(object):
         self.extractBow = cv.BOWImgDescriptorExtractor(self.extract, self.flann)
         #create a bag-of-word K means trainer
         self.bowKmeansTrainer = cv.BOWKMeansTrainer(self.BOW_CLUSTER_NUM)
-        self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
-        # normalize coordinates to integers
-        self.box = np.int0(self._roi_box)
+
 
 
 
@@ -301,13 +309,15 @@ class BuildDatabase(object):
         im = cv.imread(fn, cv.IMREAD_UNCHANGED)
         # remove noise introduced by camera, pixel dance
         blur = self._captureManager.preProcess(im)
-        imgWarp = warpImg(blur, self.box, wP, hP)
+        # warp the interested ROI
+        imgWarp = warpImg(blur, self.box, self._warpImgWP, self._warpImgHP)
 
         # set up a mask to select interested zone only
-        self.interestedMask = np.zeros((im.shape[0], im.shape[1]), np.uint8)
-        self.interestedMask[SY:EY, SX:EX] = np.uint8(255)
-        keypoints = self.detector.detect(blur, mask=self.interestedMask)
-        keypoints, features = self.extract.compute(blur, keypoints)
+        self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
+        self.interestedMask[S_MASKY:E_MASKY, S_MASKX:E_MASKX] = np.uint8(255)
+
+        keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
+        keypoints, features = self.extract.compute(imgWarp, keypoints)
         return features
 
 
@@ -320,9 +330,12 @@ class BuildDatabase(object):
         im = cv.imread(fn, cv.IMREAD_UNCHANGED)
         # remove noise introduced by camera, pixel dance
         blur = self._captureManager.preProcess(im)
+
+        # warp the interested ROI
+        imgWarp = warpImg(blur, self.box, self._warpImgWP, self._warpImgHP)
         # use previously-setup mask to select the same interested zone only
-        keypoints = self.detector.detect(blur, mask=self.interestedMask)
-        features = self.extractBow.compute(blur, keypoints)  # based on vocabulary in self.extractBow
+        keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
+        features = self.extractBow.compute(imgWarp, keypoints)  # based on vocabulary in self.extractBow
         return features
 
     def _trainSVMModel(self):
@@ -621,23 +634,43 @@ class BuildDatabase(object):
             if response[:-1] == command[:]:
                 self.logger.info('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(self._onDisplayId))
         elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
-            self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            if self._captureManager.displayImageType in [0, 1]:
+                roi = self._roi_box
+            elif self._captureManager.displayImageType == 2:
+                roi = self._warpImgBox
+            self._snapshotWindowManager.setRectCords(roi)
+            self._windowManager.setRectCords(roi)
             self._snapshotWindowManager.setDrawRect(True)
-            self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
             self._windowManager.setDrawRect(True)
             self.logger.info('draw rectangle/keypoints in region of interest')
         elif keyCode == ord('u') or keyCode == ord('U'):  #undraw rectangle over interestedMask Area
-            self._snapshotWindowManager.setRectCords(SX, SY, EX-SX, EY-SY)
+            # if self._captureManager.displayImageType in [0, 1]:
+            #     roi = self._roi_box
+            # elif self._captureManager.displayImageType == 2:
+            #     roi = self._warpImgBox
+            # self._snapshotWindowManager.setRectCords(roi)
+            # self._windowManager.setRectCords(roi)
             self._snapshotWindowManager.setDrawRect(False)
-            self._windowManager.setRectCords(SX, SY, EX-SX, EY-SY)
             self._windowManager.setDrawRect(False)
             self.logger.info('undraw rectangle/keypoints in region of interest')
         elif keyCode == ord('o'):  #show origin image
-            self._captureManager.setDrawOrigin(True)
-            self.logger.info('show original image in live capture window')
+            self._captureManager.setDisplayImageType(0)
+            roi = self._roi_box
+            self._snapshotWindowManager.setRectCords(roi)
+            self._windowManager.setRectCords(roi)
+            self.logger.info('show original image in window')
         elif keyCode == ord('p'):  #show processed image in live capture window
-            self._captureManager.setDrawOrigin(False)
-            self.logger.info('show image after preProcessing in live capture window')
+            self._captureManager.setDisplayImageType(1)
+            roi = self._roi_box
+            self._snapshotWindowManager.setRectCords(roi)
+            self._windowManager.setRectCords(roi)
+            self.logger.info('show image after preProcessing in  window')
+        elif keyCode == ord('r'):  #show warped region of interest image  in live capture window
+            self._captureManager.setDisplayImageType(2)
+            roi = self._warpImgBox
+            self._snapshotWindowManager.setRectCords(roi)
+            self._windowManager.setRectCords(roi)
+            self.logger.info('show warped image of interested region in window')
         else:
             self.logger.info('unknown key {} pressed'.format(chr(keyCode)))
 
@@ -686,7 +719,8 @@ if __name__ == "__main__":
     try:
         solution.run()
         solution.makeJudgement()
-    except ValueError:
+    except ValueError as e:
+        logger.error(e)
         pass
     solution.reportTestResult()
 

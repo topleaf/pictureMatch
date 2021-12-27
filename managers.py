@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
-from edgeDetect import isolateROI
+from edgeDetect import warpImg
 
 STATES_NUM = 52
 
@@ -15,7 +15,7 @@ class WindowManager:
         self.keyPressCallback = keyPressCallback
         self._isWindowCreated = False
         self._isDrawRect = False
-        self._rectCords = None  # a rectangle range (x,y,w,h) inside this window
+        self._rectCords = None  # list of  4 corners coordination [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)] inside this window
         self._keyPoints = None  # keypoints detected to be shown in this window
         pass
 
@@ -26,16 +26,14 @@ class WindowManager:
     def rectCords(self):
         return self._rectCords
 
-    def setRectCords(self, x, y, w, h):
+    def setRectCords(self, boxPoints):
         """
         set rectangle coordinations to be drawn in this window
-        :param x:
-        :param y:
-        :param w:
-        :param h:
+        :param boxPoints : list of  4 corners coordination [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+
         :return:
         """
-        self._rectCords = x, y, w, h
+        self._rectCords = np.array(boxPoints, np.int32)
 
     @property
     def isDrawRect(self):
@@ -86,9 +84,7 @@ class WindowManager:
         #draw a red rectangle over the region specified by self._rectCords
         if self._isDrawRect:
             if self.rectCords is not None:
-                cv.rectangle(frame, (self._rectCords[0], self._rectCords[1]),
-                          (self._rectCords[0] + self._rectCords[2]-1,
-                             self._rectCords[1] + self._rectCords[3]-1), (0, 255, 0), 3)
+                cv.polylines(frame, [self._rectCords], True, (0, 255, 125), 3)
             if self._keyPoints is not None:
                 frame = cv.drawKeypoints(image=frame, outImage=frame, keypoints=self._keyPoints, flags=4, color=(51,163,236))
         width = int(frame.shape[1])
@@ -117,7 +113,8 @@ class WindowManager:
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
-                 compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9):
+                 compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
+                 roiBox = [(0,0),(0,480),(640,0),(640,480)]):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -139,10 +136,11 @@ class CaptureManager:
         self._warpImgSize = warpImgSize
         self._trainingImg = None       # expected training img, to be shown
         self.w = 0          # initial snapshot window left coordination
-        self._showOrigin = True     # show original image without processing in live preview window
+        self._showImageType = 0     # show original image without processing in live preview window
         self._thresholdValue = threshValue  # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
         self._blurLevel = blurLevel     # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
         self._detector = cv.xfeatures2d.SIFT_create()  #SIFT detector
+        self._box = roiBox
 
 
     def openCamera(self):
@@ -153,10 +151,19 @@ class CaptureManager:
         # set camera buffersize to 1
         self._capture.set(cv.CAP_PROP_BUFFERSIZE, 1)
 
-    def setDrawOrigin(self, value):
-        if value in (True, False):
-            self._showOrigin = value
-            self.logger.debug('setDrawOrigin to {}'.format(value))
+    @property
+    def displayImageType(self):
+        return self._showImageType
+
+    def setDisplayImageType(self, value):
+        """
+        set image display type to original, afterProcessed image , or warped region of interest image from original image
+        :param value:
+        :return:
+        """
+        if value in (0, 1, 2):
+            self._showImageType = value
+            self.logger.debug('setDisplayImageType to {}'.format(value))
 
     @property
     def cameraIsOpened(self):
@@ -261,7 +268,7 @@ class CaptureManager:
 
                 # visualize the expectedModelId's first standard image in snapWindow
             if self._snapWindowManager is not None and self._trainingImg is not None:
-                self._snapWindowManager.show(self._trainingImg.copy(), self.w, 10, True)
+                self._snapWindowManager.show(self._trainingImg.copy(), self.w+50, 10, True)
 
 
 
@@ -344,41 +351,47 @@ class CaptureManager:
 
         blurSnapshot = self.preProcess(self._frame)
         blurTrain = self.preProcess(self._trainingImg)
+        # warp the interested ROI
+        warpBlurSnapshot = warpImg(blurSnapshot, self._box, self._warpImgSize[0], self._warpImgSize[1])
+        warpBlurTrain = warpImg(blurTrain, self._box, self._warpImgSize[0], self._warpImgSize[1])
 
-        if blurSnapshot is not None and blurTrain is not None\
+        if warpBlurSnapshot is not None and warpBlurTrain is not None\
             and self._svm is not None and self._bowExtractor is not None:
             #create  keypoints detector
 
             #set keypoints in preview and snapshot window so they have this
             # information in case user pressed 'D' key to show them on window
-            keypoints = self._detector.detect(blurSnapshot, self._interestedMask)
+            keypoints = self._detector.detect(warpBlurSnapshot, self._interestedMask)
             self.previewWindowManager.setKeypoints(keypoints)
 
-            kp1 = self._detector.detect(blurTrain, self._interestedMask)
+            kp1 = self._detector.detect(warpBlurTrain, self._interestedMask)
             self._snapWindowManager.setKeypoints(kp1)
 
-            bowFeature = self._bowExtractor.compute(blurSnapshot, keypoints)
+            bowFeature = self._bowExtractor.compute(warpBlurSnapshot, keypoints)
 
             _, result = self._svm.predict(bowFeature)
             a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
             score = pred[0][0]
             self.logger.info('SVM model id:{}, Class:{:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
 
-            if self._showOrigin is False:
+            if self._showImageType == 1:
                 self._frame = blurSnapshot
                 self._trainingImg = blurTrain
+            elif self._showImageType == 2:
+                self._frame = warpImg(self._frame, self._box, self._warpImgSize[0], self._warpImgSize[1])
+                self._trainingImg = warpImg(self._trainingImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
             if self._expectedModelId != 0: ## using single classification model
                 if result[0][0] == 1.0:
                     if score <= -0.99:
-                        cv.putText(self._frame, 'match with svm model {},score is {:.4f}'
-                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                        cv.putText(self._frame, 'match model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                         self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
                         compareResult['matched'] = True
 
                     else:
-                        cv.putText(self._frame, 'might NOT match with svm model {},score is {:.4f}'
-                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                        cv.putText(self._frame, 'might NOT match svm model {},score is {:.4f}'
+                                   .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
                         self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
                         compareResult['matched'] = False
@@ -390,20 +403,20 @@ class CaptureManager:
                     compareResult['score'] = score
                     if score >= 0.99:
                         cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
-                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
                         self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
                     else:
                         cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
-                                   .format(self._expectedModelId, score), (10, blurSnapshot.shape[0]-30),
+                                   .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
 
                         self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
             else:       # use unique multiclassification model to predict
                 predictedClassId = result[0][0]
                 if predictedClassId in range(1, STATES_NUM+1, 1):
-                    cv.putText(self._frame, 'matched with class {},score={:.4f}'
-                               .format(int(predictedClassId), score), (10, blurSnapshot.shape[0]-30),
+                    cv.putText(self._frame, 'match class {}'
+                               .format(int(predictedClassId)), (10, self._frame.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                     self.logger.debug('live image matched with class {},score ={:.4f}'.
                                      format(int(predictedClassId), score))
@@ -414,12 +427,12 @@ class CaptureManager:
                     compareResult['matched'] = False
                     if score >= 0.99:
                         cv.putText(self._frame, 'Sure No match with any training images,score={:.4f}'
-                                   .format(score), (10, blurSnapshot.shape[0]-30),
+                                   .format(score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
                         self.logger.info('live image NOT match!!!')
                     else:
                         cv.putText(self._frame, 'NOT match with svm model,score is {:.4f}'
-                                   .format(score), (10, blurSnapshot.shape[0]-30),
+                                   .format(score), (10, self._frame.shape[0]-30),
                                    cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
                         self.logger.info('currentImage does NOT match with svm model')
 

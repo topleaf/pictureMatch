@@ -109,9 +109,9 @@ if __name__ == '__main__':
     webCam = True
     # cameraProperty = []
     if webCam:
-        camera = cv2.VideoCapture(0)
+        camera = cv2.VideoCapture(1)
         if not camera.isOpened():
-            print('can not open camera 0')
+            print('can not open camera 1')
             exit(-1)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
@@ -296,10 +296,10 @@ if __name__ == '__main__':
         #                 saveLcdInternal = False
         #
 
-        for i, key in enumerate(cameraPropertyNames):
-            # cameraProperty.append(camera.get(key))
-            print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
-        print('\n')
+#        for i, key in enumerate(cameraPropertyNames):
+#            # cameraProperty.append(camera.get(key))
+#            print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
+#        print('\n')
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
             break
