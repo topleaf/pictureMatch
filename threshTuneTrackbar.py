@@ -109,9 +109,9 @@ if __name__ == '__main__':
     webCam = True
     # cameraProperty = []
     if webCam:
-        camera = cv2.VideoCapture(1)
+        camera = cv2.VideoCapture(0)
         if not camera.isOpened():
-            print('can not open camera 1')
+            print('can not open camera 0')
             exit(-1)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
@@ -138,11 +138,13 @@ if __name__ == '__main__':
     saveLcdInternal = False
     drawRect = False
 
+    tbDiffThresh = 'Diff threshold'
     tbThresh = 'threshold'
     tbErodeIter = 'erode iteration'
     tbDilateIter = 'dilate iteration'
     tbCannyLow = 'Canny low'
     tbCannyHigh = 'Canny high'
+    cv2.createTrackbar(tbDiffThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
     cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
@@ -156,10 +158,11 @@ if __name__ == '__main__':
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
     cv2.createTrackbar(tbMaxArea, windowName, 20, 300000, func)
 
-    switch = '0 : Origin\n1 : Thresh\n2 : blur\n 3: Erode first\n 4: dilate first\n 5:erode\n 6:Contour\n'
-    cv2.createTrackbar(switch, windowName, 0, 6, func)
-    cv2.setTrackbarPos(switch, windowName, 3)
-    cv2.setTrackbarPos(tbThresh, windowName, 90)
+    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n 5:diff\n6:erode\n 7:Contour\n'
+    cv2.createTrackbar(switch, windowName, 0, 7, func)
+    cv2.setTrackbarPos(switch, windowName, 5)
+    cv2.setTrackbarPos(tbDiffThresh, windowName, 3)
+    cv2.setTrackbarPos(tbThresh, windowName, 65)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
     cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
@@ -168,12 +171,15 @@ if __name__ == '__main__':
     cv2.setTrackbarPos(tbCannyLow, windowName, 10)
     cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
     kernel = np.ones((3, 3))
+    backGroundGray = None
     while(1):
         if webCam:
             success, img = camera.read()
             if not success:
                 break
+
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
+        diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
         cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
         cannyHigh = cv2.getTrackbarPos(tbCannyHigh, windowName)
         erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
@@ -186,20 +192,32 @@ if __name__ == '__main__':
         s = cv2.getTrackbarPos(switch, windowName)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
+            backGroundGray = gray
+            backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
+            continue
+
+
+
         if s == 0:
             displayWindow(windowName,img,30,0,screenResolution, True)
-            # cv2.imshow(windowName, img)
         elif s == 1:
-            ret, thresh_img = cv2.threshold(gray, thresh_level,255,cv2.THRESH_TOZERO)#cv2.THRESH_BINARY_INV)
-            displayWindow(windowName,thresh_img, 30,0,screenResolution, True)
-        elif s == 2:
-            ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
-            blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
+            blur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
             cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
-                       cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
+                        cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
             print('blurr_level={}'.format(blurr_level))
-            displayWindow(windowName,thresh_img,30,0,screenResolution, True)
-            # cv2.imshow(windowName, blur)
+            displayWindow(windowName, blur, 30,0,screenResolution, True)
+        elif s == 2:
+            blur = cv2.GaussianBlur(gray,(blurr_level,blurr_level), 0)
+            cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
+                        cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
+            print('blurr_level={}'.format(blurr_level))
+            ret, thresh_img = cv2.threshold(blur, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+            displayWindow(windowName,thresh_img, 30,0,screenResolution, True)
+            # ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
+            # blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
+
         # elif s == 3:  canny
         #     # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
         #     blur = cv2.blur(gray,(blurr_level,blurr_level))
@@ -208,19 +226,22 @@ if __name__ == '__main__':
         #     displayWindow(windowName,imgCanny,30,0,screenResolution, True)
         #     # cv2.imshow (windowName, imgCanny)
         elif s == 3:
-            ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
-            blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
-            imgErode = cv2.erode(blur, kernel=kernel, iterations=erodeIter)
+            blur = cv2.GaussianBlur(gray,(blurr_level,blurr_level), 0)
+            cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
+                        cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
+            print('blurr_level={}'.format(blurr_level))
+
+            ret, thresh_img = cv2.threshold(blur, thresh_level,255, cv2.THRESH_BINARY_INV)
+            imgErode = cv2.erode(thresh_img, kernel=kernel, iterations=erodeIter)
             imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=dilateIter)
-            # imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=2)
-            displayWindow(windowName,imgDilate,0,0,screenResolution, True)
+            displayWindow(windowName, imgDilate,0,0,screenResolution, True)
         elif s == 4:
-            ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
-            blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
-            imgDilate = cv2.dilate(blur, kernel=kernel, iterations=dilateIter)
+            blur = cv2.GaussianBlur(gray, (blurr_level,blurr_level),0)
+            ret, thresh_img = cv2.threshold(blur, thresh_level,255, cv2.THRESH_BINARY_INV)
+
+            imgDilate = cv2.dilate(thresh_img, kernel=kernel, iterations=dilateIter)
             imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=erodeIter)
-            # imgErode = cv2.erode(imgDilate, kernel=kernel, iterations=2)
-            displayWindow(windowName,imgDilate,0,0,screenResolution, True)
+            displayWindow(windowName,imgErode,0,0,screenResolution, True)
 
             # # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
             # blur = cv2.blur(gray,(blurr_level,blurr_level))
@@ -228,7 +249,18 @@ if __name__ == '__main__':
             # imgDilate = cv2.dilate(imgCanny, kernel=kernel, iterations=3)
             # displayWindow(windowName,imgDilate,0,0,screenResolution, True)
             # cv2.imshow (windowName, imgDilate)
-        elif s == 5:
+        elif s == 5:  # show difference of current frame against the previous frame under current setting
+            blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+            diff = cv2.absdiff(blurFrame, backGroundGrayBlur)
+            if diff.max() <= diff_thresh_level:
+                blurFrame = backGroundGrayBlur      #  treat current frame as the same as backGroundGrayBlur
+            diff = cv2.absdiff(blurFrame, backGroundGrayBlur)
+            diff = cv2.threshold(diff, diff_thresh_level, 255, cv2.THRESH_BINARY)[1]
+            # imgDilateDiff = cv2.dilate(diff, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(9,4)), iterations=dilateIter)
+            displayWindow(windowName, diff, 0,0,screenResolution, True)
+            # set current frame as previous frame for next time
+            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+        elif s == 6:
             # show erodeImage
             contours_img = img.copy()
             erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,

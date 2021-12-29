@@ -114,7 +114,7 @@ class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
-                 roiBox = [(0,0),(0,480),(640,0),(640,480)]):
+                 roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -141,6 +141,10 @@ class CaptureManager:
         self._blurLevel = blurLevel     # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
         self._detector = cv.xfeatures2d.SIFT_create()  #SIFT detector
         self._box = roiBox
+        self._previousFrame = None  #
+        self._diffThresholdLevel = cameraNoise
+        # if consecutive frames' gray level difference are less than noiseLevel, they are treated as the same
+        self._enableSmooth = False  # disable noise suppressing during capturing and saving training sample phase
 
 
     def openCamera(self):
@@ -214,11 +218,40 @@ class CaptureManager:
             self._channel = value
             self._frame = None
 
+    def _smooth(self):
+        """
+        smooth, reduce noise according to diffThresholdLevel in self._box area
+
+        :return:  smoothed frame
+        """
+        if self._frame is not None:
+            prevGray = cv.cvtColor(self._previousFrame, cv.COLOR_BGR2GRAY)
+            gray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
+            blurPrevFrame = cv.GaussianBlur(prevGray, (self._blurLevel, self._blurLevel), 0)
+            blurFrame = cv.GaussianBlur(gray, (self._blurLevel,self._blurLevel), 0)
+            warpBlurPrev = warpImg(blurPrevFrame, self._box, self._warpImgSize[0], self._warpImgSize[1])
+            warpBlurFrame = warpImg(blurFrame, self._box, self._warpImgSize[0], self._warpImgSize[1])
+            diff = cv.absdiff(warpBlurPrev, warpBlurFrame)
+            if diff.max() <= self._diffThresholdLevel:
+                return self._previousFrame      # use previousFrame, discard current frame as a noise frame
+            else:
+                self._previousFrame = self._frame
+                return self._frame
+        else:
+            return self._frame
+
     @property
     def frame(self):
         if self._enteredFrame and self._frame is None:
-            _, self._frame = self._capture.retrieve()
+            if self._previousFrame is None:
+                _, self._previousFrame = self._capture.retrieve()
+                self._frame = self._previousFrame
+            else:       # smooth frame according to diffThresholdLevel
+                _, self._frame = self._capture.retrieve()
+                if self._enableSmooth:      # need to suppress noise, in predicting phase
+                    self._frame = self._smooth()
             return self._frame
+
 
     @property
     def isWritingImage(self):
@@ -300,12 +333,18 @@ class CaptureManager:
 
     def setCompareModel(self, expectedModelId, svmModelList,
                         bowExtractorsList, interestedMask,
-                        trainingImg):
+                        trainingImg,enableSmooth):
         """
-        set SVM expectedModelId to be used to compare with current frame
-        :param filename:
+
+        :param expectedModelId:
+        :param svmModelList:
+        :param bowExtractorsList:
+        :param interestedMask:
+        :param trainingImg:
+        :param enableSmooth:
         :return:
         """
+
         self._expectedModelId = expectedModelId
         if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
             self._svm = svmModelList[self._expectedModelId-1]
@@ -316,6 +355,7 @@ class CaptureManager:
 
         self._interestedMask = interestedMask
         self._trainingImg = trainingImg
+        self._enableSmooth = enableSmooth
 
 
     def preProcess(self, image):
@@ -325,6 +365,7 @@ class CaptureManager:
         :return: thresh and blurred image with defined preprocess parameters
         """
         gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
         # first trial, only do threshold, result is OK
         # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
         # return cv.blur(binary, (self._blurLevel, self._blurLevel))
@@ -332,11 +373,19 @@ class CaptureManager:
         # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
         # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
         # training time period = 1497 seconds
-        ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-        blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
-        imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
-        imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
-        return imgDilate
+        # ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        # blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
+        # imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
+        # imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
+
+        #third trial, at first use smooth in CaptureManager to remove camera noise, then
+        # use gaussian blur,threshold,dilate and erode
+        blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
+        ret, thresh_img = cv.threshold(blur, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        imgDilate = cv.dilate(thresh_img, kernel=np.ones((3, 3)), iterations=1)
+        imgErode = cv.erode(imgDilate, kernel=np.ones((3, 3)), iterations=1)
+
+        return imgErode
 
 
     def _compare(self):

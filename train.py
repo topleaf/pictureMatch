@@ -53,10 +53,10 @@ SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 938, 68
-EX, EY = 1485, 766
-RU_X, RU_Y = 1526, 118
-LB_X, LB_Y = 889, 730
+SX, SY = 707, 102
+EX, EY = 1347, 754
+RU_X, RU_Y = 1323, 88
+LB_X, LB_Y = 720, 773
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -68,7 +68,7 @@ class BuildDatabase(object):
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
-                 thresholdValue=47, blurLevel=9):
+                 thresholdValue=47, blurLevel=9,noiseLevel=8):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -77,7 +77,7 @@ class BuildDatabase(object):
         :param portId: serial port id: int
         """
         #define roi mask coordinations in WarpImage
-        self._S_MASKX, self._E_MASKX, self._S_MASKY, self._E_MASKY = 20, wP-30, 20, hP-30
+        self._S_MASKX, self._E_MASKX, self._S_MASKY, self._E_MASKY = 5, wP-5, 5, hP-5
         self.logger = logger
         self._compareResultList = []
         self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
@@ -94,7 +94,8 @@ class BuildDatabase(object):
                                               warpImgSize=(wP, hP),
                                               threshValue=thresholdValue,
                                               blurLevel=blurLevel,
-                                              roiBox=self.box
+                                              roiBox=self.box,
+                                              cameraNoise=noiseLevel
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
@@ -561,9 +562,10 @@ class BuildDatabase(object):
         self._captureManager.openCamera()
         while self._windowManager.isWindowCreated:
             self._captureManager.enterFrame()
+            # enable smooth mode, suppress noise
             self._captureManager.setCompareModel(self.expectedSvmModelId, self.svmModels,
                                                  self.extractBowList, self.interestedMask,
-                                                 self._expectedTrainingImg)
+                                                 self._expectedTrainingImg, True)
             compareResult = self._captureManager.exitFrame()
             if compareResult is not None and compareResult['matched']:
                 # load the training sample specified inside compareResult
@@ -697,6 +699,7 @@ if __name__ == "__main__":
     parser.add_argument("--reTrain", dest='reTrain', help='retrain SVM models or NOT [0,1]', default = True, type=int)
     parser.add_argument("--threshold", dest='threshold', help='threshold value[1,255]',  type=int)
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
+    parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8, type=int)
 
     args = parser.parse_args()
 
@@ -719,7 +722,8 @@ if __name__ == "__main__":
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder, args.roiFolder,
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
-                             reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue)
+                             reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue,
+                             noiseLevel = args.cameraNoise)
     try:
         solution.run()
         solution.makeJudgement()
