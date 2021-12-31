@@ -6,7 +6,7 @@ import subprocess
 from filters import SharpenFilter
 from edgeDetect import warpImg
 
-STATES_NUM = 52
+STATES_NUM = 51
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
@@ -229,13 +229,22 @@ class CaptureManager:
             gray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
             blurPrevFrame = cv.GaussianBlur(prevGray, (self._blurLevel, self._blurLevel), 0)
             blurFrame = cv.GaussianBlur(gray, (self._blurLevel,self._blurLevel), 0)
+            diff = cv.absdiff(blurFrame, blurPrevFrame)
+
+            # project region of interest to new coordination for compare purpose only
             warpBlurPrev = warpImg(blurPrevFrame, self._box, self._warpImgSize[0], self._warpImgSize[1])
             warpBlurFrame = warpImg(blurFrame, self._box, self._warpImgSize[0], self._warpImgSize[1])
-            diff = cv.absdiff(warpBlurPrev, warpBlurFrame)
-            if diff.max() <= self._diffThresholdLevel:
-                return self._previousFrame      # use previousFrame, discard current frame as a noise frame
+            diffRoi = cv.absdiff(warpBlurPrev, warpBlurFrame)
+            self._previousFrame = self._frame   # set current Frame to be previousFrame for next time comparasion
+            if diffRoi.max() <= self._diffThresholdLevel:      # variation in roi is less than noise threshold level
+                # return self._previousFrame      # use previousFrame, discard current frame as a noise frame
+                # combine current frame and previousFrame in gray format, copy ROI content of previousFrame into
+                # this smoothed frame
+                newGray = np.where(diff > self._diffThresholdLevel, gray, prevGray)
+                newColor = cv.cvtColor(newGray, cv.COLOR_GRAY2BGR)
+                return newColor
             else:
-                self._previousFrame = self._frame
+                # self._previousFrame = self._frame   # set current Frame to be previousFrame for next time comparasion
                 return self._frame
         else:
             return self._frame
@@ -297,7 +306,7 @@ class CaptureManager:
                 mirroredFrame = np.fliplr(self._frame).copy()
                 self.w, h = self.previewWindowManager.show(mirroredFrame, 10, 10, True)
             else:
-                self.w, h = self.previewWindowManager.show(self._frame, 10, 10, True)
+                self.w, h = self.previewWindowManager.show(self._frame.copy(), 10, 10, True)
 
                 # visualize the expectedModelId's first standard image in snapWindow
             if self._snapWindowManager is not None and self._trainingImg is not None:
@@ -417,6 +426,9 @@ class CaptureManager:
             self._snapWindowManager.setKeypoints(kp1)
 
             bowFeature = self._bowExtractor.compute(warpBlurSnapshot, keypoints)
+            if bowFeature is None:
+                self.logger.warning('empty SIFT extracted from current image')
+                return compareResult
 
             _, result = self._svm.predict(bowFeature)
             a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
@@ -623,23 +635,25 @@ class CommunicationManager:
         self._expectedReponseLen = 18
 
 
-    def _commandMapping(self, picId):
+    def _commandMapping(self, picId,algorithm):
         """
         translate picId to control bytes sent to DUT
         :param picId:  int from 1-65535
+        :param algorithm: int to differentiate which method to use
         :return: 13-byte length bytes, lower 4 bits in every bytes is effective
         """
-        controlInt = pow(2, picId) - 1
-        controlBytes = []
-        for i in range(13):
-            lastFourBits = controlInt & 0x0F
-            controlInt >>= 4
-            controlBytes.insert(0, lastFourBits)
+        if algorithm in [0, 1]:  # 0 :previous set bits are kept , incrementally 1: only one bit is set
+            controlInt = pow(2, picId) - (1-algorithm)
+            controlBytes = []
+            for i in range(13):
+                lastFourBits = controlInt & 0x0F
+                controlInt >>= 4
+                controlBytes.insert(0, lastFourBits)
 
-        command = self._commandPrefix
-        for i in range(len(controlBytes)):
-            command += controlBytes[i].to_bytes(1, 'big')
-        return command
+            command = self._commandPrefix
+            for i in range(len(controlBytes)):
+                command += controlBytes[i].to_bytes(1, 'big')
+            return command
 
     def send(self, picId):
         """
@@ -649,8 +663,8 @@ class CommunicationManager:
         """
         # newContent = (lambda x: 0x01 << x-1 if x > 0 else 0)(picId)  # 0: 00, 1: 01, 2:02, 3:04, 4:08
 
-        # command = self._commandPrefix + picId.to_bytes(1, 'big')*13
-        command = self._commandMapping(picId)
+        # command = self._commandPrefix + newContent.to_bytes(1, 'big')*13
+        command = self._commandMapping(picId, algorithm=1)
         retLen = self._ser.write(command)
         self._expectedReponseLen = retLen+1
         return command

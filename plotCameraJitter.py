@@ -6,7 +6,7 @@ import time
 import argparse
 
 class CameraJitterPlot:
-    def __init__(self, deviceId=0, frameNum=5,save = False,
+    def __init__(self, deviceId=0, frameNum=2,save = False,
                  sampleInteval=1, resW=1920, resH=1080,folderName='plotFrames',x=100,y=200,
                  liveMode = True,fileName='./trainingImages/2/pos-0.png'):
         self.liveMode = liveMode
@@ -23,11 +23,13 @@ class CameraJitterPlot:
         self.save = save
         self.actualCount = 0
         self._cameraProporty = []
+        self.backGround = None
         if self.liveMode:
             self.camera = cv.VideoCapture(deviceId)
             self.camera.set(3,resW)
             self.camera.set(4,resH)
             self.camera.set(5, 5)
+            self.camera.set(cv.CAP_PROP_BUFFERSIZE, 1)
             for i in range(19):
                 self._cameraProporty.append(self.camera.get(i))
                 print(i, ":", self._cameraProporty[i], "\t")
@@ -41,6 +43,7 @@ class CameraJitterPlot:
             os.mkdir(self.folderName)
         except:
             pass
+
         previousTimestamp  = time.time()
         while count < self.frameNum:
             if self.liveMode:
@@ -48,6 +51,19 @@ class CameraJitterPlot:
             else:
                 succ = True
                 liveFrame = self.frame
+            if self.backGround is None:
+                self.backGround = cv.cvtColor(liveFrame, cv.COLOR_BGR2GRAY)
+                # self.backGround = cv.GaussianBlur(self.backGround,(21,21),0)
+                continue
+
+            grayFrame = cv.cvtColor(liveFrame,cv.COLOR_BGR2GRAY)
+            # grayFrame = cv.GaussianBlur(grayFrame, (21,21),0)
+
+            diff = cv.absdiff(grayFrame, self.backGround)
+            diff = cv.threshold(diff, 25, 255, cv.THRESH_BINARY)[1]
+            diff = cv.dilate(diff, cv.getStructuringElement(cv.MORPH_ELLIPSE,(9,4)),iterations=3)
+            cv.imshow('diff', diff)
+            key = cv.waitKey(10000)
             currentTimestamp = time.time()
             if succ:
                 gap = (currentTimestamp-previousTimestamp)

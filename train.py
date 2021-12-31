@@ -53,10 +53,10 @@ SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 707, 102
-EX, EY = 1347, 754
-RU_X, RU_Y = 1323, 88
-LB_X, LB_Y = 720, 773
+SX, SY = 656, 120
+EX, EY = 1337, 734
+RU_X, RU_Y = 1271, 72
+LB_X, LB_Y = 705, 794
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -126,7 +126,10 @@ class BuildDatabase(object):
         self._modelPrefixName = modelPrefixName
         self._bowExtractorListFilename = 'bowExtractorList'
         self._maskFileName = 'maskZone'
-        self.interestedMask = None      # define a region of interest after get image from frame
+        # self.interestedMask = None      # define a region of interest after get image from frame
+        # set up a mask to select interested zone only
+        self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
+        self.interestedMask[self._S_MASKY:self._E_MASKY, self._S_MASKX:self._E_MASKX] = np.uint8(255)
         self.BOW_CLUSTER_NUM = STATES_NUM*10  # bag of visual words cluster number
         self.expectedSvmModelId = 0  # designated model id (0 is multiclass model) to be applied to current image
         self.svmModels = []
@@ -138,8 +141,8 @@ class BuildDatabase(object):
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
         self._startTime = time.time()
         #create  keypoints detector and descriptor extractor
-        self.detector = cv.xfeatures2d.SIFT_create()
-        self.extract = cv.xfeatures2d.SIFT_create()
+        self.detector = cv.xfeatures2d.SIFT_create(nOctaveLayers=5)    # the larger nOctaveLayer, the smaller blob it can detect
+        self.extract = cv.xfeatures2d.SIFT_create(nOctaveLayers=5)
         #create a flann matcher
         FLANN_INDEX_KDTREE = 0
         indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
@@ -303,6 +306,21 @@ class BuildDatabase(object):
                               format(firstExpectedTrainingFileLocation))
             raise ValueError
 
+    def get_keypoints(self, fn):
+        """
+
+        :param fn: file location
+        :return: imgWarp and keypoints that lies in file within self.interestedMask region
+        """
+        im = cv.imread(fn, cv.IMREAD_UNCHANGED)
+        # remove noise introduced by camera, pixel dance
+        blur = self._captureManager.preProcess(im)
+
+        # warp the interested ROI
+        imgWarp = warpImg(blur, self.box, self._warpImgWP, self._warpImgHP)
+        # use previously-setup mask to select the same interested zone only
+        keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
+        return imgWarp, keypoints
 
     def extract_sift(self,fn):
         """
@@ -310,18 +328,7 @@ class BuildDatabase(object):
         :param fn: full path of the image
         :return:
         """
-
-        im = cv.imread(fn, cv.IMREAD_UNCHANGED)
-        # remove noise introduced by camera, pixel dance
-        blur = self._captureManager.preProcess(im)
-        # warp the interested ROI
-        imgWarp = warpImg(blur, self.box, self._warpImgWP, self._warpImgHP)
-
-        # set up a mask to select interested zone only
-        self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
-        self.interestedMask[self._S_MASKY:self._E_MASKY, self._S_MASKX:self._E_MASKX] = np.uint8(255)
-
-        keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
+        imgWarp, keypoints = self.get_keypoints(fn)
         keypoints, features = self.extract.compute(imgWarp, keypoints)
         return features
 
@@ -332,14 +339,7 @@ class BuildDatabase(object):
         :param fn:  full path of the image
         :return:  its descriptor
         """
-        im = cv.imread(fn, cv.IMREAD_UNCHANGED)
-        # remove noise introduced by camera, pixel dance
-        blur = self._captureManager.preProcess(im)
-
-        # warp the interested ROI
-        imgWarp = warpImg(blur, self.box, self._warpImgWP, self._warpImgHP)
-        # use previously-setup mask to select the same interested zone only
-        keypoints = self.detector.detect(imgWarp, mask=self.interestedMask)
+        imgWarp, keypoints = self.get_keypoints(fn)
         features = self.extractBow.compute(imgWarp, keypoints)  # based on vocabulary in self.extractBow
         return features
 
@@ -367,6 +367,13 @@ class BuildDatabase(object):
                             return
                         if features is not None:
                             self.bowKmeansTrainer.add(features)
+                        else:
+                            self.logger.error('training class {} sample {} for bowKmeansTrainer'
+                                              ' has no SIFT features,\n'
+                                              'Please adjust threhold  and recapture training images'.format(i, fileLocation))
+                            raise ValueError
+                            return
+
         except Exception as e:
             self.logger.error(e)
             raise ValueError
@@ -708,7 +715,7 @@ if __name__ == "__main__":
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
     logHandler = logging.StreamHandler()
     logHandler.setFormatter(formatter)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     logger.addHandler(logHandler)
 
     logger.info(args)

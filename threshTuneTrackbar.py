@@ -18,7 +18,7 @@ def func(x):
     pass
 
 
-STATES_NUM += 6
+STATES_NUM = 52
 cameraResW = 1920
 cameraResH = 1080
 scale = 2
