@@ -68,7 +68,7 @@ class BuildDatabase(object):
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
-                 thresholdValue=47, blurLevel=9,noiseLevel=8):
+                 thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -105,7 +105,7 @@ class BuildDatabase(object):
                             (self._E_MASKX, self._E_MASKY), (self._E_MASKX, self._S_MASKY)]
         try:
             self._communicationManager = CommunicationManager(self.logger, '/dev/ttyUSB'+str(portId),
-                                                              self._expireSeconds)
+                                                              self._expireSeconds,algorithm=imageTheme)
         except ConnectionError:
             self.logger.error('Abort!! Please make sure serial port is ready then retry')
             exit(-1)
@@ -707,6 +707,7 @@ if __name__ == "__main__":
     parser.add_argument("--threshold", dest='threshold', help='threshold value[1,255]',  type=int)
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8, type=int)
+    parser.add_argument("--imageTheme", dest='imageTheme', help='user defined images theme [0,3]', default=3, type=int)
 
     args = parser.parse_args()
 
@@ -730,7 +731,7 @@ if __name__ == "__main__":
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
                              reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue,
-                             noiseLevel = args.cameraNoise)
+                             noiseLevel = args.cameraNoise,imageTheme=args.imageTheme)
     try:
         solution.run()
         solution.makeJudgement()

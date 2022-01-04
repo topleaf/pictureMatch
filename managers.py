@@ -615,7 +615,7 @@ class CommunicationManager:
 
     where checksum is the sum of previous 5 bytes ,pic_id is [0x00,0xFF]
     """
-    def __init__(self, logger, serialDeviceName, timeoutInSecond):
+    def __init__(self, logger, serialDeviceName, timeoutInSecond, algorithm):
         self.logger = logger
         # initial serial port with 2 timeout, ser.send() and ser.read() will return after sending/receiving
         # or timeout
@@ -627,33 +627,60 @@ class CommunicationManager:
             raise ConnectionError
             return
         self._timer = timeoutInSecond
-        # self._commandPrefix = b'\x52\x40'
-        # self._commandBody = b'\x00\x00'
-
         self._commandPrefix = b'\x53\x50\x00\x0d'
         # self._commandBody = b'\x00\x00'
         self._expectedReponseLen = 18
+        self._commands=[]
+        self._algorithm=algorithm
+        if self._algorithm == 3:
+            self.buildAlgorithm3CommandList()
 
 
-    def _commandMapping(self, picId,algorithm):
+    def _commandMapping(self, picId):
         """
         translate picId to control bytes sent to DUT
         :param picId:  int from 1-65535
         :param algorithm: int to differentiate which method to use
         :return: 13-byte length bytes, lower 4 bits in every bytes is effective
         """
-        if algorithm in [0, 1]:  # 0 :previous set bits are kept , incrementally 1: only one bit is set
-            controlInt = pow(2, picId) - (1-algorithm)
+        command = self._commandPrefix
+        if self._algorithm in [0, 1]:  # 0 :previous set bits are kept , incrementally 1: only one bit is set
+            controlInt = pow(2, picId) - (1-self._algorithm)
             controlBytes = []
             for i in range(13):
                 lastFourBits = controlInt & 0x0F
                 controlInt >>= 4
                 controlBytes.insert(0, lastFourBits)
-
-            command = self._commandPrefix
             for i in range(len(controlBytes)):
                 command += controlBytes[i].to_bytes(1, 'big')
-            return command
+        elif self._algorithm==2:
+            divider, moder = divmod(picId, 4)
+            # newContent = (lambda x: 0x01 << x-1 if x > 0 else 0)(moder)  # 0: 00, 1: 01, 2:02, 3:04, 4:08
+            moder = (lambda x: 4 if x == 0 else x)(moder)
+            controlInt = pow(2, moder)-1
+            for i in range(13):
+                if i == divider:
+                    command += controlInt.to_bytes(1, 'big')
+                else:
+                    command += b'\x00'
+        else:
+            command = self._commands[picId-1]
+        return command
+
+    def buildAlgorithm3CommandList(self):
+
+        for i in range(13):
+            for j in range(i+1, 13):
+                if i != j:
+                    command = self._commandPrefix
+                    xcommand = [b'\x00',b'\x00',b'\x00',b'\x00',b'\x00',b'\x00',b'\x00',b'\x00',
+                                b'\x00',b'\x00',b'\x00',b'\x00',b'\x00']
+                    xcommand[i] = b'\x07'
+                    xcommand[j] = b'\x070'
+                    for c in xcommand:
+                        command += c
+                    self._commands.append(command)
+
 
     def send(self, picId):
         """
@@ -664,7 +691,7 @@ class CommunicationManager:
         # newContent = (lambda x: 0x01 << x-1 if x > 0 else 0)(picId)  # 0: 00, 1: 01, 2:02, 3:04, 4:08
 
         # command = self._commandPrefix + newContent.to_bytes(1, 'big')*13
-        command = self._commandMapping(picId, algorithm=1)
+        command = self._commandMapping(picId)
         retLen = self._ser.write(command)
         self._expectedReponseLen = retLen+1
         return command
