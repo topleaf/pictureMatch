@@ -142,6 +142,12 @@ if __name__ == '__main__':
     saveLcdInternal = False
     drawRect = False
 
+    roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+    # normalize coordinates to integers
+    box = np.int0(roi_box)
+
+    tbCameraShiftX = 'cameraShiftX distance'   # simulate camera offset in x direction
+    tbCameraShiftY = 'cameraShiftY distance'
     tbDiffThresh = 'Diff threshold'
     tbSSIMDiffThresh = 'SSIM diff judgeThreshold'       # threshold value to distinguish inter-frame difference
     tbThresh = 'threshold'
@@ -150,6 +156,8 @@ if __name__ == '__main__':
     tbCannyLow = 'Canny low'
     tbCannyHigh = 'Canny high'
 
+    cv2.createTrackbar(tbCameraShiftX, windowName, 0, 50, func)
+    cv2.createTrackbar(tbCameraShiftY, windowName, 0, 50, func)
     cv2.createTrackbar(tbSSIMDiffThresh,windowName, 0, 255, func)
     cv2.createTrackbar(tbDiffThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
@@ -169,6 +177,8 @@ if __name__ == '__main__':
              '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 8, func)
     cv2.setTrackbarPos(switch, windowName, 5)
+    cv2.setTrackbarPos(tbCameraShiftX, windowName, 5)
+    cv2.setTrackbarPos(tbCameraShiftY,windowName, 0)
     cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 23)
     cv2.setTrackbarPos(tbDiffThresh, windowName, 8)
     cv2.setTrackbarPos(tbThresh, windowName, 65)
@@ -188,6 +198,9 @@ if __name__ == '__main__':
                 break
 
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
+        camera_shift_x = cv2.getTrackbarPos(tbCameraShiftX, windowName)
+        camera_shift_y = cv2.getTrackbarPos(tbCameraShiftY, windowName)
+        diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
         diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
         ssim_diff_thresh_level = cv2.getTrackbarPos(tbSSIMDiffThresh,windowName)
         cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
@@ -292,11 +305,10 @@ if __name__ == '__main__':
             # get the lcd Screen part rectangle from current frame after blur
             # and previous frame after blur
             blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
-            roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
-            # normalize coordinates to integers
-            box = np.int0(roi_box)
-            imgWarpBlur = warpImg(blurFrame, box, wP, hP)
-
+            # setup  the simulated interested box after camera is shifted in x and y direction
+            boxCameraShift = box + [camera_shift_x, camera_shift_y]
+            imgWarpBlur = warpImg(blurFrame, boxCameraShift, wP, hP)
+            # training sample's camera box does NOT change
             imgWarpBackgroundBlur = warpImg(backGroundGrayBlur, box,wP,hP)
             score, diff = compare_ssim(imgWarpBlur, imgWarpBackgroundBlur, full=True)
             logger.debug('warp imgs structure similarity score ={}'.format(score))
@@ -308,6 +320,7 @@ if __name__ == '__main__':
             cnts = cv2.findContours(thresh.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
             if len(cnts[0]) > 0:
                 logger.info('different images found! length of cnts={}'.format(len(cnts)))
+
             displayWindow(windowName, thresh, 0, 0, screenResolution, True)
             # cnts = imutils.grab_contours(cnts)
 
@@ -316,9 +329,6 @@ if __name__ == '__main__':
         else:
             # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
-            roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
-            # normalize coordinates to integers
-            box = np.int0(roi_box)
             imgWarp = warpImg(contours_img, box, wP, hP)
             cv2.imshow('warped lcd screen img', imgWarp)
 
