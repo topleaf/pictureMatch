@@ -4,6 +4,10 @@ in order to get a good contour rectangle
 
 press 'a' key to save current images(original,detected,warped_image) to disk for late checking
 press esc key to exit
+
+
+Jan 5 , add Structure Similarity method tryout based on https://www.pyimagesearch.com/2017/06/19/image-difference-with-opencv-and-python/
+ paper: https://ece.uwaterloo.ca/~z70wang/publications/ssim.pdf
 """
 import cv2
 import numpy as np
@@ -12,6 +16,8 @@ import subprocess
 from managers import CommunicationManager, STATES_NUM
 from train import SKIP_STATE_ID
 import logging
+from skimage.metrics import structural_similarity as compare_ssim
+# import imutils
 import time
 
 def func(x):
@@ -21,13 +27,11 @@ def func(x):
 STATES_NUM = 52
 cameraResW = 1920
 cameraResH = 1080
-scale = 2
+scale = 1
 wP = 300*scale
 hP = 300*scale
-SX, SY = 952, 82
-EX, EY = 1491, 773
-RU_X, RU_Y = 1544, 132
-LB_X, LB_Y = 902, 738
+
+from train import SX, SY, EX, EY, RU_X, RU_Y, LB_X, LB_Y
 
 def _getCurrentScreenRes():
     """
@@ -102,7 +106,7 @@ if __name__ == '__main__':
     screenResolution =_getCurrentScreenRes()
     _onDisplayId = 1
     try:
-        _communicationManager = CommunicationManager(logger, '/dev/ttyUSB'+str(0), 5)
+        _communicationManager = CommunicationManager(logger, '/dev/ttyUSB'+str(0), 5, 1)
     except ConnectionError:
         logger.error('Abort!! Please make sure serial port is ready then retry')
         exit(-1)
@@ -139,11 +143,14 @@ if __name__ == '__main__':
     drawRect = False
 
     tbDiffThresh = 'Diff threshold'
+    tbSSIMDiffThresh = 'SSIM diff judgeThreshold'       # threshold value to distinguish inter-frame difference
     tbThresh = 'threshold'
     tbErodeIter = 'erode iteration'
     tbDilateIter = 'dilate iteration'
     tbCannyLow = 'Canny low'
     tbCannyHigh = 'Canny high'
+
+    cv2.createTrackbar(tbSSIMDiffThresh,windowName, 0, 255, func)
     cv2.createTrackbar(tbDiffThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
     cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
@@ -158,10 +165,12 @@ if __name__ == '__main__':
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
     cv2.createTrackbar(tbMaxArea, windowName, 20, 300000, func)
 
-    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n 5:diff\n6:erode\n 7:Contour\n'
-    cv2.createTrackbar(switch, windowName, 0, 7, func)
+    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n ' \
+             '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
+    cv2.createTrackbar(switch, windowName, 0, 8, func)
     cv2.setTrackbarPos(switch, windowName, 5)
-    cv2.setTrackbarPos(tbDiffThresh, windowName, 3)
+    cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 23)
+    cv2.setTrackbarPos(tbDiffThresh, windowName, 8)
     cv2.setTrackbarPos(tbThresh, windowName, 65)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
@@ -180,6 +189,7 @@ if __name__ == '__main__':
 
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
         diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
+        ssim_diff_thresh_level = cv2.getTrackbarPos(tbSSIMDiffThresh,windowName)
         cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
         cannyHigh = cv2.getTrackbarPos(tbCannyHigh, windowName)
         erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
@@ -278,6 +288,31 @@ if __name__ == '__main__':
                 imgWarp = warpImg(erodeImage, minAreaRectBox, wP, hP)
                 cv2.imshow('warped erode img', imgWarp)
             # end of getcontours
+        elif s == 7: #  show SSIM difference of current frame against the previous frame under current setting
+            # get the lcd Screen part rectangle from current frame after blur
+            # and previous frame after blur
+            blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+            roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
+            # normalize coordinates to integers
+            box = np.int0(roi_box)
+            imgWarpBlur = warpImg(blurFrame, box, wP, hP)
+
+            imgWarpBackgroundBlur = warpImg(backGroundGrayBlur, box,wP,hP)
+            score, diff = compare_ssim(imgWarpBlur, imgWarpBackgroundBlur, full=True)
+            logger.debug('warp imgs structure similarity score ={}'.format(score))
+            diff = (diff*255).astype('uint8')
+            #displayWindow(windowName, diff, 0, 0, screenResolution, True)
+
+            #find contours of difference between 2  warpImages
+            thresh = cv2.threshold(diff, 255-ssim_diff_thresh_level, 255, cv2.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
+            cnts = cv2.findContours(thresh.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+            if len(cnts[0]) > 0:
+                logger.info('different images found! length of cnts={}'.format(len(cnts)))
+            displayWindow(windowName, thresh, 0, 0, screenResolution, True)
+            # cnts = imutils.grab_contours(cnts)
+
+            # set current frame as previous frame for next time
+            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
         else:
             # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
