@@ -47,16 +47,16 @@ import time
 
 DELAY_IN_SECONDS = 1
 
-SKIP_STATE_ID = 23      # skip id=23,  because its image is the same as 24
+SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
 
 # scale = 2
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 656, 120
-EX, EY = 1337, 734
-RU_X, RU_Y = 1271, 72
-LB_X, LB_Y = 705, 794
+SX, SY = 962, 214
+EX, EY = 1533, 922
+RU_X, RU_Y = 1563, 253
+LB_X, LB_Y = 912, 892
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -68,7 +68,7 @@ class BuildDatabase(object):
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
-                 thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3):
+                 thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -95,7 +95,8 @@ class BuildDatabase(object):
                                               threshValue=thresholdValue,
                                               blurLevel=blurLevel,
                                               roiBox=self.box,
-                                              cameraNoise=noiseLevel
+                                              cameraNoise=noiseLevel,
+                                              structureSimilarityThreshold=structureSimilarityThreshold
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
@@ -130,8 +131,8 @@ class BuildDatabase(object):
         # set up a mask to select interested zone only
         self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
         self.interestedMask[self._S_MASKY:self._E_MASKY, self._S_MASKX:self._E_MASKX] = np.uint8(255)
-        self.BOW_CLUSTER_NUM = STATES_NUM*10  # bag of visual words cluster number
-        self.expectedSvmModelId = 0  # designated model id (0 is multiclass model) to be applied to current image
+        self.BOW_CLUSTER_NUM = STATES_NUM-1  # bag of visual words cluster number
+        self.expectedSvmModelId = 1  # designated SVM model id or expected training sample id to be compared with current image
         self.svmModels = []
         self.vocs = []
         self.extractBowList = []
@@ -144,7 +145,7 @@ class BuildDatabase(object):
         self.detector = cv.xfeatures2d.SIFT_create(nOctaveLayers=5)    # the larger nOctaveLayer, the smaller blob it can detect
         self.extract = cv.xfeatures2d.SIFT_create(nOctaveLayers=5)
         #create a flann matcher
-        FLANN_INDEX_KDTREE = 0
+        FLANN_INDEX_KDTREE = 1 # kd tree
         indexParams = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
         searchParams = {} #dict(checks=50)
         self.flann = cv.FlannBasedMatcher(indexParams, searchParams)
@@ -163,10 +164,10 @@ class BuildDatabase(object):
         if not self._retrainModel:
             return
         #  step 2: training each SVM models and save them to disk.
-        # self._trainSVMModels()
+        self._trainSVMModels()
 
         # or train one multi-classification SVM mode and save to disk
-        self._trainSVMModel()
+        # self._trainSVMModel()
         training_duration = time.time() - self._startTime
 
         self.logger.info('Training duration is:{} seconds'.format(training_duration))
@@ -297,7 +298,7 @@ class BuildDatabase(object):
                     continue
         # load expected training sample
         firstExpectedTrainingFileLocation = join(self._folderName,
-                                                 str(self.expectedSvmModelId+1),
+                                                 str(self.expectedSvmModelId),
                                                  self.positive +'0.' + self._imgFormat)
         self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
         if self._expectedTrainingImg is None:
@@ -610,22 +611,31 @@ class BuildDatabase(object):
         elif keyCode == 32:  # space key
             self.logger.info('save screenshoot to snapshot.png')
             self._captureManager.save('snapshot.png')
-        elif keyCode in range(ord('1'), ord('9')+1, 1): # simulate expected SVM model id 1~9
-            if keyCode < ord('1') + len(self.svmModels):
-                self.expectedSvmModelId = int(chr(keyCode))
-                try:
-                    firstExpectedTrainingFileLocation = join(self._folderName,
-                                                             str(self.expectedSvmModelId),
-                                                             self.positive +'0.' + self._imgFormat)
-                    self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
-                except Exception as e:
-                    self.logger.error('training sample file {} deleted? {}'.
-                                      format(firstExpectedTrainingFileLocation, e))
-                assert self._expectedTrainingImg is not None
-                self.logger.info('use SVM model {} to judge next frame'.format(self.expectedSvmModelId))
+        elif keyCode in (ord(','), ord('.')): # simulate adding/decreasing expected SVM model/training image id
+            if keyCode == ord(','):
+                if self.expectedSvmModelId > 1:
+                    self.expectedSvmModelId -= 1
+                else:
+                    self.expectedSvmModelId = len(self.svmModels)
+                if self.expectedSvmModelId == SKIP_STATE_ID:
+                    self.expectedSvmModelId -= 1
             else:
-                self.logger.warning('you chose a too large number, '
-                                    'must be less than svm model numbers {}'.format(len(self.svmModels)))
+                if self.expectedSvmModelId < len(self.svmModels):
+                    self.expectedSvmModelId += 1
+                else:
+                    self.expectedSvmModelId = 1
+                if self.expectedSvmModelId == SKIP_STATE_ID:
+                    self.expectedSvmModelId += 1
+            try:
+                firstExpectedTrainingFileLocation = join(self._folderName,
+                                                         str(self.expectedSvmModelId),
+                                                         self.positive +'0.' + self._imgFormat)
+                self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
+            except Exception as e:
+                self.logger.error('training sample file {} deleted? {}'.
+                                  format(firstExpectedTrainingFileLocation, e))
+            assert self._expectedTrainingImg is not None
+            self.logger.info('use SVM model/training Sample id {} to judge next frame'.format(self.expectedSvmModelId))
         elif keyCode == ord('n') or keyCode == ord('N'):  # simulate move DUT to next image,skip one
             self._onDisplayId += 1
             if self._onDisplayId == STATES_NUM+1:
@@ -687,6 +697,13 @@ class BuildDatabase(object):
         else:
             self.logger.info('unknown key {} pressed'.format(chr(keyCode)))
 
+def durationChecker(dura):
+    num = int(dura)
+
+    if num < 2:
+        raise argparse.ArgumentTypeError(' minimum allowable value is 2')
+    return num
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="standard training image sets build up and predict")
@@ -694,20 +711,22 @@ if __name__ == "__main__":
     parser.add_argument("--port", dest='portId', help='USB serial com port ID [0,1,2,3]',default=0, type=int)
     parser.add_argument("--width", dest='width', help='set video camera width [1280,800,640,160 etc]',default=1920, type=int)
     parser.add_argument("--height", dest='height', help='set video camera height [960,600,480,120 etc]',default=1080, type=int)
-    parser.add_argument("--duration", dest='duration', help='how many frames to discard before confirmation',default=30, type=int)
+    parser.add_argument("--duration", dest='duration', help='how many samples to capture as training samples[>=2]',
+                        default=2, type=durationChecker)
     parser.add_argument("--imgWidth", dest='imgWidth', help='set ROI image width [1280,800,640,etc]',default=600, type=int)
     parser.add_argument("--imgHeight", dest='imgHeight', help='set ROI image height [960,600,480,etc]',default=600, type=int)
-    parser.add_argument("--folder", dest='folder', help='folder name to store training image files', default= "./trainingImages", type=str)
-    parser.add_argument("--roiFolder", dest='roiFolder', help='folder name to store Region of Interest training image files', default ='./rois', type=str)
-    parser.add_argument("--featureFolder", dest='featureFolder', help='folder name to store image feature files', default ='./features', type=str)
+    parser.add_argument("--folder", dest='folder', help='folder name to store training image files', default= "/media/newdiskp1/picMatch/trainingImages", type=str)
+    parser.add_argument("--roiFolder", dest='roiFolder', help='folder name to store Region of Interest training image files', default ='/media/newdiskp1/picMatch/rois', type=str)
+    parser.add_argument("--featureFolder", dest='featureFolder', help='folder name to store image feature files', default ='/media/newdiskp1/picMatch/features', type=str)
     parser.add_argument("--imageFormat", dest='imageFormat', help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
     parser.add_argument("--skipCapture", dest='skipCapture', help='do not overwrite existing image files [0,1]', default = True, type=int)
-    parser.add_argument("--modelFolder", dest='modelFolder', help='folder name to store trained SVM models', default = './models', type=str)
+    parser.add_argument("--modelFolder", dest='modelFolder', help='folder name to store trained SVM models', default = '/media/newdiskp1/picMatch/models', type=str)
     parser.add_argument("--reTrain", dest='reTrain', help='retrain SVM models or NOT [0,1]', default = True, type=int)
     parser.add_argument("--threshold", dest='threshold', help='threshold value[1,255]',  type=int)
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8, type=int)
-    parser.add_argument("--imageTheme", dest='imageTheme', help='user defined images theme [0,3]', default=3, type=int)
+    parser.add_argument("--imageTheme", dest='imageTheme', help='user defined images theme [0,3]', default=1, type=int)
+    parser.add_argument("--ssThreshold", dest='ssThreshold', help='user defined structure similarity threshold[0,255]\n default=23', default=23, type=int)
 
     args = parser.parse_args()
 
@@ -731,7 +750,8 @@ if __name__ == "__main__":
                              args.featureFolder, imgFormat=args.imageFormat,
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
                              reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue,
-                             noiseLevel = args.cameraNoise,imageTheme=args.imageTheme)
+                             noiseLevel = args.cameraNoise,imageTheme=args.imageTheme,
+                             structureSimilarityThreshold=args.ssThreshold)
     try:
         solution.run()
         solution.makeJudgement()
