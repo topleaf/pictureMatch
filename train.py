@@ -53,10 +53,10 @@ SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 962, 214
-EX, EY = 1533, 922
-RU_X, RU_Y = 1563, 253
-LB_X, LB_Y = 912, 892
+SX, SY = 930, 171
+EX, EY = 1499, 883
+RU_X, RU_Y = 1538, 214
+LB_X, LB_Y = 880, 850
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756

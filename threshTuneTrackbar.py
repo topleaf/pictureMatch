@@ -105,6 +105,11 @@ if __name__ == '__main__':
     screenResolution = ()
     screenResolution =_getCurrentScreenRes()
     _onDisplayId = 1
+
+
+    # set up a mask to select interested zone only, discard 10 rows and 10 columns at 4 edges
+    interestedMask = np.zeros((hP, wP), np.uint8)
+    interestedMask[10:hP-10, 10:wP-10] = np.uint8(255)
     try:
         _communicationManager = CommunicationManager(logger, '/dev/ttyUSB'+str(0), 5, 1)
     except ConnectionError:
@@ -176,11 +181,11 @@ if __name__ == '__main__':
     switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n ' \
              '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 8, func)
-    cv2.setTrackbarPos(switch, windowName, 5)
-    cv2.setTrackbarPos(tbCameraShiftX, windowName, 5)
-    cv2.setTrackbarPos(tbCameraShiftY,windowName, 0)
-    cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 23)
-    cv2.setTrackbarPos(tbDiffThresh, windowName, 8)
+    cv2.setTrackbarPos(switch, windowName, 7)
+    cv2.setTrackbarPos(tbCameraShiftX, windowName, 0)
+    cv2.setTrackbarPos(tbCameraShiftY, windowName, 0)
+    cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 128)
+    cv2.setTrackbarPos(tbDiffThresh, windowName, 18)
     cv2.setTrackbarPos(tbThresh, windowName, 65)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     cv2.setTrackbarPos(tbMinArea, windowName, 50000)
@@ -191,6 +196,9 @@ if __name__ == '__main__':
     cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
     kernel = np.ones((3, 3))
     backGroundGray = None
+    if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
+        backGroundGray = cv2.cvtColor(cv2.imread('/media/newdiskp1/picMatch/trainingImages/12/pos-0.png', cv2.IMREAD_UNCHANGED),
+                                      cv2.COLOR_BGR2GRAY)
     while(1):
         if webCam:
             success, img = camera.read()
@@ -215,11 +223,12 @@ if __name__ == '__main__':
         s = cv2.getTrackbarPos(switch, windowName)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
 
-        if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
-            backGroundGray = gray
-            backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
-            continue
+        # if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
+        #     backGroundGray = gray
+        #     backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
+        #     continue
 
 
 
@@ -282,7 +291,7 @@ if __name__ == '__main__':
             # imgDilateDiff = cv2.dilate(diff, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(9,4)), iterations=dilateIter)
             displayWindow(windowName, diff, 0,0,screenResolution, True)
             # set current frame as previous frame for next time
-            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+            # backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
         elif s == 6:
             # show erodeImage
             contours_img = img.copy()
@@ -304,12 +313,20 @@ if __name__ == '__main__':
         elif s == 7: #  show SSIM difference of current frame against the previous frame under current setting
             # get the lcd Screen part rectangle from current frame after blur
             # and previous frame after blur
+            # cv2.imshow('training',backGroundGrayBlur)
             blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
             # setup  the simulated interested box after camera is shifted in x and y direction
             boxCameraShift = box + [camera_shift_x, camera_shift_y]
             imgWarpBlur = warpImg(blurFrame, boxCameraShift, wP, hP)
             # training sample's camera box does NOT change
             imgWarpBackgroundBlur = warpImg(backGroundGrayBlur, box,wP,hP)
+            # cv2.imshow('warptraining',imgWarpBackgroundBlur)
+
+            # use interestedMask to fetch only interested area data
+            imgWarpBlur = np.where(interestedMask == 0, 0, imgWarpBlur)
+            imgWarpBackgroundBlur = np.where(interestedMask == 0, 0, imgWarpBackgroundBlur)
+
+            #calculate structure similarity
             score, diff = compare_ssim(imgWarpBlur, imgWarpBackgroundBlur, full=True)
             logger.debug('warp imgs structure similarity score ={}'.format(score))
             diff = (diff*255).astype('uint8')
@@ -317,15 +334,15 @@ if __name__ == '__main__':
 
             #find contours of difference between 2  warpImages
             thresh = cv2.threshold(diff, 255-ssim_diff_thresh_level, 255, cv2.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
-            cnts = cv2.findContours(thresh.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-            if len(cnts[0]) > 0:
+            cnts, hiearachy = cv2.findContours(thresh.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+            if len(cnts) > 0:
                 logger.info('different images found! length of cnts={}'.format(len(cnts)))
 
             displayWindow(windowName, thresh, 0, 0, screenResolution, True)
             # cnts = imutils.grab_contours(cnts)
 
             # set current frame as previous frame for next time
-            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
+            # backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
         else:
             # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
