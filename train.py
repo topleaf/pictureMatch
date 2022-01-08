@@ -35,7 +35,7 @@ warp interested Region image, detect and compute on warpedImage, use key 'r' to 
 set videoCapture property buffersize from default 4 to 1
 """
 
-from managers import WindowManager,CaptureManager,CommunicationManager,STATES_NUM
+from managers import WindowManager,CaptureManager,CommunicationManager, STATES_NUM,SKIP_STATE_ID
 from edgeDetect import extractValidROI, warpImg
 import logging
 import argparse
@@ -47,7 +47,7 @@ import time
 
 DELAY_IN_SECONDS = 1
 
-SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
+
 
 # scale = 2
 # wP = 300*scale
@@ -68,7 +68,8 @@ class BuildDatabase(object):
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
-                 thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23):
+                 thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23,
+                 offsetX=5,offsetY=5):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -96,7 +97,9 @@ class BuildDatabase(object):
                                               blurLevel=blurLevel,
                                               roiBox=self.box,
                                               cameraNoise=noiseLevel,
-                                              structureSimilarityThreshold=structureSimilarityThreshold
+                                              structureSimilarityThreshold=structureSimilarityThreshold,
+                                              offsetRangeX=offsetX,
+                                              offsetRangeY=offsetY,
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
@@ -616,11 +619,11 @@ class BuildDatabase(object):
                 if self.expectedSvmModelId > 1:
                     self.expectedSvmModelId -= 1
                 else:
-                    self.expectedSvmModelId = len(self.svmModels)
+                    self.expectedSvmModelId = len(self.svmModels)+1
                 if self.expectedSvmModelId == SKIP_STATE_ID:
                     self.expectedSvmModelId -= 1
             else:
-                if self.expectedSvmModelId < len(self.svmModels):
+                if self.expectedSvmModelId <= len(self.svmModels):
                     self.expectedSvmModelId += 1
                 else:
                     self.expectedSvmModelId = 1
@@ -727,7 +730,8 @@ if __name__ == "__main__":
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8, type=int)
     parser.add_argument("--imageTheme", dest='imageTheme', help='user defined images theme [0,3]', default=1, type=int)
     parser.add_argument("--ssThreshold", dest='ssThreshold', help='user defined structure similarity threshold[0,255]\n default=23', default=23, type=int)
-
+    parser.add_argument("--cameraOffsetX", dest='offsetX', help='allowable camera shift in pixel in X direction away from training position[0,255]\n default=5', default=5, type=int)
+    parser.add_argument("--cameraOffsetY", dest='offsetY', help='allowable camera shift in pixel in Y direction away from training position[0,255]\n default=5', default=5, type=int)
     args = parser.parse_args()
 
 
@@ -751,7 +755,9 @@ if __name__ == "__main__":
                              modelFolder=args.modelFolder, modelPrefixName='svmxml',skipCapture=args.skipCapture,
                              reTrainModel = args.reTrain, thresholdValue=args.threshold, blurLevel=args.blurValue,
                              noiseLevel = args.cameraNoise,imageTheme=args.imageTheme,
-                             structureSimilarityThreshold=args.ssThreshold)
+                             structureSimilarityThreshold=args.ssThreshold,
+                             offsetX=args.offsetX,
+                             offsetY=args.offsetY)
     try:
         solution.run()
         solution.makeJudgement()

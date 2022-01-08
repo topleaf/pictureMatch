@@ -6,8 +6,9 @@ import subprocess
 from filters import SharpenFilter
 from edgeDetect import warpImg
 from skimage.metrics import structural_similarity as compare_ssim
-
+SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
 STATES_NUM = 52
+
 
 class WindowManager:
     def __init__(self,windowName, keyPressCallback):
@@ -115,7 +116,8 @@ class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
-                 roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23):
+                 roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23,
+                 offsetRangeX=5,offsetRangeY=5):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -147,6 +149,8 @@ class CaptureManager:
         # if consecutive frames' gray level difference are less than noiseLevel, they are treated as the same
         self._enableSmooth = False  # disable noise suppressing during capturing and saving training sample phase
         self._ssim_diff_thresh_level = structureSimilarityThreshold
+        self.offsetX = offsetRangeX   # range in x direction of allowing camera shift
+        self.offsetY = offsetRangeY
 
 
     def openCamera(self):
@@ -358,8 +362,12 @@ class CaptureManager:
 
         self._expectedModelId = expectedModelId
         if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
-            self._svm = svmModelList[self._expectedModelId-1]
-            self._bowExtractor = bowExtractorsList[self._expectedModelId-1]
+            if self._expectedModelId < SKIP_STATE_ID:  #skip 1 state without model
+                index = self._expectedModelId-1
+            else:
+                index = self._expectedModelId-2
+            self._svm = svmModelList[index]
+            self._bowExtractor = bowExtractorsList[index]
         else:                           # multi-classfication model id is always  0
             self._svm = svmModelList[self._expectedModelId]
             self._bowExtractor = bowExtractorsList[self._expectedModelId]
@@ -579,7 +587,7 @@ class CaptureManager:
 
         blurSnapshot = self.preProcess(self._frame)
         blurTrain = self.preProcess(self._trainingImg)
-        cnts_len, thresh, score = self._tryShiftCamera(blurSnapshot, blurTrain, 5, 5)
+        cnts_len, thresh, score = self._tryShiftCamera(blurSnapshot, blurTrain, self.offsetX, self.offsetY)
         if self._showImageType == 1:
             self._frame = blurSnapshot
             self._trainingImg = blurTrain

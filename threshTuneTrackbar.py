@@ -197,7 +197,7 @@ if __name__ == '__main__':
     kernel = np.ones((3, 3))
     backGroundGray = None
     if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
-        backGroundGray = cv2.cvtColor(cv2.imread('/media/newdiskp1/picMatch/trainingImages/12/pos-0.png', cv2.IMREAD_UNCHANGED),
+        backGroundGray = cv2.cvtColor(cv2.imread('/media/newdiskp1/picMatch/trainingImages/52/pos-0.png', cv2.IMREAD_UNCHANGED),
                                       cv2.COLOR_BGR2GRAY)
     while(1):
         if webCam:
