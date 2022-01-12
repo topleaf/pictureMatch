@@ -53,10 +53,10 @@ DELAY_IN_SECONDS = 1
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 930, 171
-EX, EY = 1499, 883
-RU_X, RU_Y = 1538, 214
-LB_X, LB_Y = 880, 850
+SX, SY = 528, 106
+EX, EY = 1059, 677
+RU_X, RU_Y = 1057, 101
+LB_X, LB_Y = 523, 675
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -69,7 +69,7 @@ class BuildDatabase(object):
                  duration, videoWidth, videoHeight, wP, hP, folderName,roiFolderName,featureFolder,
                  imgFormat,modelFolder,modelPrefixName,skipCapture=True,reTrainModel=True,
                  thresholdValue=47, blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23,
-                 offsetX=5,offsetY=5):
+                 offsetX=5,offsetY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -100,6 +100,8 @@ class BuildDatabase(object):
                                               structureSimilarityThreshold=structureSimilarityThreshold,
                                               offsetRangeX=offsetX,
                                               offsetRangeY=offsetY,
+                                              deltaArea=deltaArea, deltaCenterX=deltaCenterX,
+                                              deltaCenterY=deltaCenterY, deltaRadius=deltaRadius
                                               )
         self._predefinedPatterns = predefinedPatterns
         self._expireSeconds = 5
@@ -167,7 +169,7 @@ class BuildDatabase(object):
         if not self._retrainModel:
             return
         #  step 2: training each SVM models and save them to disk.
-        self._trainSVMModels()
+        # self._trainSVMModels()
 
         # or train one multi-classification SVM mode and save to disk
         # self._trainSVMModel()
@@ -578,16 +580,16 @@ class BuildDatabase(object):
                                                  self.extractBowList, self.interestedMask,
                                                  self._expectedTrainingImg, True)
             compareResult = self._captureManager.exitFrame()
-            if compareResult is not None and compareResult['matched']:
-                # load the training sample specified inside compareResult
-                trainingFileLocation = join(self._folderName,
-                                                 str(compareResult['predictedClassId']),
-                                                 self.positive + '0.' + self._imgFormat)
-                self._expectedTrainingImg = cv.imread(trainingFileLocation)
-                if self._expectedTrainingImg is None:
-                    self.logger.error('training sample file {} deleted?'
-                              'please set --skipCapture 0 and rerun'.
-                                  format(trainingFileLocation))
+            # if compareResult is not None and compareResult['matched']:
+            #     # load the training sample specified inside compareResult
+            #     trainingFileLocation = join(self._folderName,
+            #                                      str(compareResult['predictedClassId']),
+            #                                      self.positive + '0.' + self._imgFormat)
+            #     self._expectedTrainingImg = cv.imread(trainingFileLocation)
+            #     if self._expectedTrainingImg is None:
+            #         self.logger.error('training sample file {} deleted?'
+            #                   'please set --skipCapture 0 and rerun'.
+            #                       format(trainingFileLocation))
             self._windowManager.processEvents()
         self._captureManager.closeCamera()
 
@@ -619,11 +621,11 @@ class BuildDatabase(object):
                 if self.expectedSvmModelId > 1:
                     self.expectedSvmModelId -= 1
                 else:
-                    self.expectedSvmModelId = len(self.svmModels)+1
+                    self.expectedSvmModelId = STATES_NUM
                 if self.expectedSvmModelId == SKIP_STATE_ID:
                     self.expectedSvmModelId -= 1
             else:
-                if self.expectedSvmModelId <= len(self.svmModels):
+                if self.expectedSvmModelId < STATES_NUM:
                     self.expectedSvmModelId += 1
                 else:
                     self.expectedSvmModelId = 1
@@ -724,7 +726,7 @@ if __name__ == "__main__":
     parser.add_argument("--imageFormat", dest='imageFormat', help='image format [png,jpg,gif,jpeg]', default ='png', type=str)
     parser.add_argument("--skipCapture", dest='skipCapture', help='do not overwrite existing image files [0,1]', default = True, type=int)
     parser.add_argument("--modelFolder", dest='modelFolder', help='folder name to store trained SVM models', default = '/media/newdiskp1/picMatch/models', type=str)
-    parser.add_argument("--reTrain", dest='reTrain', help='retrain SVM models or NOT [0,1]', default = True, type=int)
+    parser.add_argument("--reTrain", dest='reTrain', help='retrain SVM models or NOT [0,1]', default = False, type=int)
     parser.add_argument("--threshold", dest='threshold', help='threshold value[1,255]',  type=int)
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8, type=int)
@@ -732,6 +734,11 @@ if __name__ == "__main__":
     parser.add_argument("--ssThreshold", dest='ssThreshold', help='user defined structure similarity threshold[0,255]\n default=23', default=23, type=int)
     parser.add_argument("--cameraOffsetX", dest='offsetX', help='allowable camera shift in pixel in X direction away from training position[0,255]\n default=5', default=5, type=int)
     parser.add_argument("--cameraOffsetY", dest='offsetY', help='allowable camera shift in pixel in Y direction away from training position[0,255]\n default=5', default=5, type=int)
+    parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2000', default=2000, type=int)
+    parser.add_argument("--deltaCenterX", dest='deltaCenterX', help='maximum center coordination difference in X [0,255],default=20', default=20, type=int)
+    parser.add_argument("--deltaCenterY", dest='deltaCenterY', help='maximum center coordination difference in Y [0,255],default=20', default=20, type=int)
+    parser.add_argument("--deltaRadius", dest='deltaRadius', help='maximum radius difference in pixel [0,255],default=20', default=20, type=int)
+
     args = parser.parse_args()
 
 
@@ -757,7 +764,11 @@ if __name__ == "__main__":
                              noiseLevel = args.cameraNoise,imageTheme=args.imageTheme,
                              structureSimilarityThreshold=args.ssThreshold,
                              offsetX=args.offsetX,
-                             offsetY=args.offsetY)
+                             offsetY=args.offsetY,
+                             deltaArea=args.deltaArea,
+                             deltaCenterX=args.deltaCenterX,
+                             deltaCenterY=args.deltaCenterY,
+                             deltaRadius=args.deltaRadius)
     try:
         solution.run()
         solution.makeJudgement()

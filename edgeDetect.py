@@ -155,7 +155,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 
 
 # find contours that  are closed graph with minArea,cornerNumber
-def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,
+def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,interestMask,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
                         draw=True, returnErodeImage =True,threshLevel=20):
     """
@@ -168,20 +168,24 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     :param minArea:  contour has larger area than this minimum area
     :param maxArea:  contour has smaller area than this maximum area
     :param cornerNumber:  contour has corners number that are larger than this
-    :param draw:  draw a rectangle around detected contour  or not ?
+    :param draw:  draw a rectangle and a circle around detected contour  or not ?
     :return: blurred  img , list of satisfactory contours_related info
-            (area, approx, boundingbox ), original image
+            (area, center, radius, approx, boundingbox ), original image
     """
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    # blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-    ret, thresh_img = cv.threshold(gray, threshLevel,255,cv.THRESH_TOZERO)
+    blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
+    ret, thresh_img = cv.threshold(blur, threshLevel, 255, cv.THRESH_BINARY_INV) #cv.THRESH_TOZERO)
 
-    blur = cv.blur(gray,(blurr_level,blurr_level))
+    # use interestedMask to fetch only interested area data
+    if interestMask.shape == thresh_img.shape:
+        thresh_img = np.where(interestMask == 0, 0, thresh_img)
+
+    # blur = cv.blur(gray,(blurr_level,blurr_level))
     imgCanny = cv.Canny(blur, threshold_1,threshold_2)
     imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=dilateIter)
     imgErode = cv.erode(imgDilate, kernel, iterations=erodeIter)
 
-    contours, hierarchy = cv.findContours(imgErode, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv.findContours(thresh_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     if hierarchy is not None:
         # print('hierarchy shape is {}'.format(hierarchy.shape))
@@ -214,18 +218,20 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
             box = np.int0(box)
             # print('area ={}, minAreaRect box coordinates = {}'.format(area, box))
 
-            #draw the contour's minAreaRect box in RED
-            if draw:
-                cv.drawContours(img, [box], 0, (0, 0, 255), 2)
-
-            finalContours.append((area, approx, box))
             # # calculate center and radius of minimum enclosing circle
-            # (x,y),r = cv.minEnclosingCircle(c)
-            # # cast to integers
-            # center = (int(x),int(y))
-            # radius = int(r)
-            # # draw minEnclosingCircle in blue
-            # cv.circle(img, center, radius, (255, 0, 0), 2)
+            (x, y), r = cv.minEnclosingCircle(c)
+            # cast to integers
+            center = (int(x), int(y))
+            radius = int(r)
+
+            if draw:
+                cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
+                cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
+
+            finalContours.append((area, center, radius, approx, box))
+    if draw:  # draw interestMask rectangle
+        maskContours, hierarchy = cv.findContours(interestMask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        cv.drawContours(img, maskContours, -1, color=(0,255,0),thickness=2)
 
     # cv.imshow(windowName, img)
     # sort the list by contour's area, so that the larger contours are in the first
@@ -233,7 +239,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     if returnErodeImage:
         return imgErode, finalContours, img
     else:
-        return blur, finalContours, img
+        return thresh_img, finalContours, img
 
 
 def warpImg(img, points, w, h):

@@ -27,7 +27,7 @@ def func(x):
 STATES_NUM = 52
 cameraResW = 1920
 cameraResH = 1080
-scale = 1
+scale = 2
 wP = 300*scale
 hP = 300*scale
 
@@ -181,24 +181,30 @@ if __name__ == '__main__':
     switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n ' \
              '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 8, func)
-    cv2.setTrackbarPos(switch, windowName, 7)
+    cv2.setTrackbarPos(switch, windowName, 8)
     cv2.setTrackbarPos(tbCameraShiftX, windowName, 0)
     cv2.setTrackbarPos(tbCameraShiftY, windowName, 0)
     cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 128)
     cv2.setTrackbarPos(tbDiffThresh, windowName, 18)
-    cv2.setTrackbarPos(tbThresh, windowName, 65)
+    cv2.setTrackbarPos(tbThresh, windowName, 82)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    cv2.setTrackbarPos(tbMinArea, windowName, 50000)
+    cv2.setTrackbarPos(tbMinArea, windowName, 50)
     cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
     cv2.setTrackbarPos(tbErodeIter, windowName, 1)
     cv2.setTrackbarPos(tbDilateIter, windowName, 1)
     cv2.setTrackbarPos(tbCannyLow, windowName, 10)
     cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
     kernel = np.ones((3, 3))
+    background = None
     backGroundGray = None
-    if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
-        backGroundGray = cv2.cvtColor(cv2.imread('/media/newdiskp1/picMatch/trainingImages/52/pos-0.png', cv2.IMREAD_UNCHANGED),
-                                      cv2.COLOR_BGR2GRAY)
+    if background is None:   # get the first frame , after gaussian blur, used as benchmark standard
+        background = cv2.imread('/media/newdiskp1/picMatch/trainingImages/1/pos-0.png', cv2.IMREAD_UNCHANGED)
+        backGroundGray = cv2.cvtColor(background, cv2.COLOR_BGR2GRAY)
+
+    deltaArea = 200
+    deltaRadius = 20
+    deltaCenterX = 20
+    deltaCenterY = 20
     while(1):
         if webCam:
             success, img = camera.read()
@@ -208,7 +214,6 @@ if __name__ == '__main__':
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
         camera_shift_x = cv2.getTrackbarPos(tbCameraShiftX, windowName)
         camera_shift_y = cv2.getTrackbarPos(tbCameraShiftY, windowName)
-        diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
         diff_thresh_level = cv2.getTrackbarPos(tbDiffThresh, windowName)
         ssim_diff_thresh_level = cv2.getTrackbarPos(tbSSIMDiffThresh,windowName)
         cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
@@ -223,14 +228,16 @@ if __name__ == '__main__':
         s = cv2.getTrackbarPos(switch, windowName)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
+
+        if background is None:   # get the first frame , after gaussian blur, used as benchmark standard
+            background = img
+            backGroundGray = gray
+            backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
+            continue
+
         backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
-
-        # if backGroundGray is None:   # get the first frame , after gaussian blur, used as benchmark standard
-        #     backGroundGray = gray
-        #     backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
-        #     continue
-
-
 
         if s == 0:
             displayWindow(windowName,img,30,0,screenResolution, True)
@@ -291,35 +298,37 @@ if __name__ == '__main__':
             # imgDilateDiff = cv2.dilate(diff, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(9,4)), iterations=dilateIter)
             displayWindow(windowName, diff, 0,0,screenResolution, True)
             # set current frame as previous frame for next time
-            # backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
         elif s == 6:
             # show erodeImage
             contours_img = img.copy()
             erodeImage, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
                                                     erodeIter, dilateIter,
-                                                    kernel,
+                                                    kernel, interestedMask,
                                                     minArea=minArea, maxArea=maxArea,
                                                     cornerNumber=4, draw=drawRect,
                                                     returnErodeImage=True,threshLevel=thresh_level)
             displayWindow(windowName,erodeImage,0,0,screenResolution, True)
             # cv2.imshow(windowName, erodeImage)
-            if len(conts) != 0:
-                # print('hhhh,conts = {}'.format(conts))
-                minAreaRectBox = conts[0][2]
-                # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-                imgWarp = warpImg(erodeImage, minAreaRectBox, wP, hP)
-                cv2.imshow('warped erode img', imgWarp)
+            # if len(conts) != 0:
+            #     # print('hhhh,conts = {}'.format(conts))
+            #     minAreaRectBox = conts[0][2]
+            #     # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
+            #     imgWarp = warpImg(erodeImage, minAreaRectBox, wP, hP)
+            #     cv2.imshow('warped erode img', imgWarp)
             # end of getcontours
         elif s == 7: #  show SSIM difference of current frame against the previous frame under current setting
             # get the lcd Screen part rectangle from current frame after blur
             # and previous frame after blur
             # cv2.imshow('training',backGroundGrayBlur)
             blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
+            ret, thresh_img = cv2.threshold(blurFrame, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+            ret, backgroundThresh_img = cv2.threshold(backGroundGrayBlur, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
             # setup  the simulated interested box after camera is shifted in x and y direction
             boxCameraShift = box + [camera_shift_x, camera_shift_y]
-            imgWarpBlur = warpImg(blurFrame, boxCameraShift, wP, hP)
+            imgWarpBlur = warpImg(thresh_img, boxCameraShift, wP, hP)
             # training sample's camera box does NOT change
-            imgWarpBackgroundBlur = warpImg(backGroundGrayBlur, box,wP,hP)
+            imgWarpBackgroundBlur = warpImg(backgroundThresh_img, box,wP,hP)
             # cv2.imshow('warptraining',imgWarpBackgroundBlur)
 
             # use interestedMask to fetch only interested area data
@@ -344,33 +353,70 @@ if __name__ == '__main__':
             # set current frame as previous frame for next time
             # backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
         else:
+            # use contours in both images to compare, if contour areas, centers and radius are within delta ranges
+            # then judge that they are same images.
+
             # get the lcd Screen part rectangle from original img
             contours_img = img.copy()
-            imgWarp = warpImg(contours_img, box, wP, hP)
+            # setup  the simulated interested box after camera is shifted in x and y direction
+            boxCameraShift = box + [camera_shift_x, camera_shift_y]
+            imgWarp = warpImg(contours_img, boxCameraShift, wP, hP)
+
+            img1, conts, imgWarp = getRequiredContours(imgWarp, blurr_level, cannyLow,cannyHigh,
+                                                                  erodeIter, dilateIter,
+                                                      kernel,interestedMask,
+                                                      minArea=minArea, maxArea=maxArea,
+                                                      cornerNumber=4, draw=drawRect,
+                                                      returnErodeImage=False, threshLevel=thresh_level)
+
+            # training sample's camera box does NOT change
+            imgWarpBackground = warpImg(background.copy(), box, wP, hP)
+            img2, contsBackground, imgWarpBackground = getRequiredContours(imgWarpBackground, blurr_level, cannyLow,cannyHigh,
+                                                    erodeIter, dilateIter,
+                                                    kernel,interestedMask,
+                                                    minArea=minArea, maxArea=maxArea,
+                                                    cornerNumber=4, draw=drawRect,
+                                                    returnErodeImage=False, threshLevel=thresh_level)
+            if drawRect:
+                cv2.rectangle(contours_img,box[0],box[2],(0,255,0),2)
+            displayWindow(windowName, contours_img, 0, 0,screenResolution, True)
             cv2.imshow('warped lcd screen img', imgWarp)
-
-            # blurredImg, conts, contours_img = getRequiredContours(contours_img, blurr_level, cannyLow,cannyHigh,
-            #                                                       erodeIter, dilateIter,
-            #                                           kernel,
-            #                                           minArea=minArea, maxArea=maxArea,
-            #                                           cornerNumber=4, draw=drawRect,
-            #                                           returnErodeImage=False)
-
-            displayWindow(windowName,contours_img,0,0,screenResolution, True)
+            cv2.imshow('warped training sample img', imgWarpBackground)
             # cv2.imshow(windowName, contours_img)
-            # if len(conts) != 0:
-            #     print('hhhh,conts = {}'.format(conts))
-            #     minAreaRectBox = conts[0][2]
-            #     # project the lcd screen to (wP,hP) size, make a imgWarp for the next step
-            #     imgWarp = warpImg(blurredImg, minAreaRectBox, wP, hP)
-            #     cv2.imshow('warped lcd screen img', imgWarp)
-            #
-            #     if saveLcdScreenMarked:
-            #         cv2.imwrite(originalFileName.split('.')[0] +'_detected.png', contours_img)
-            #         saveLcdScreenMarked = False
-            #     if saveWarpImg:
-            #         cv2.imwrite(originalFileName.split('.')[0] + '_warpImg.png', imgWarp)
-            #         saveWarpImg = False
+            matched = True
+            if len(conts) != len(contsBackground):
+                matched = False
+                logger.info('not match, contslen={},contsBackground={}'.format(len(conts),len(contsBackground)))
+            else:
+                for i in range(len(conts)):
+                    area, center, radius = conts[i][0],conts[i][1],conts[i][2]
+                    areaT, centerT, radiusT = contsBackground[i][0],contsBackground[i][1], contsBackground[i][2]
+                    diffArea = abs(area-areaT)
+                    diffCenterX = abs(center[0]-centerT[0])
+                    diffCenterY = abs(center[1]-centerT[1])
+                    diffRadius = abs(radius-radiusT)
+                    logger.debug('diffArea={},diffCenter=({},{}),radius={}'.format(diffArea, diffCenterX,
+                                                                                   diffCenterY, diffRadius))
+                    if diffArea > deltaArea or diffRadius > deltaRadius \
+                        or diffCenterX > deltaCenterX or diffCenterX > deltaCenterY:
+                        matched = False
+                        break
+                if matched:
+                    logger.info('Matched!')
+                else:
+                    logger.info('Not match!')
+
+            # set current frame as previous frame for next time
+            # background = img
+
+
+
+                # if saveLcdScreenMarked:
+                #     cv2.imwrite(originalFileName.split('.')[0] +'_detected.png', contours_img)
+                #     saveLcdScreenMarked = False
+                # if saveWarpImg:
+                #     cv2.imwrite(originalFileName.split('.')[0] + '_warpImg.png', imgWarp)
+                #     saveWarpImg = False
 
         # getRequiredContours from imgWarp, looking for symbols displayed on lcd screen
         #         contours_img2, conts2 = \

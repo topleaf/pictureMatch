@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
-from edgeDetect import warpImg
+from edgeDetect import warpImg, getRequiredContours
 from skimage.metrics import structural_similarity as compare_ssim
 SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
 STATES_NUM = 52
@@ -117,7 +117,7 @@ class CaptureManager:
                  snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
                  roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23,
-                 offsetRangeX=5,offsetRangeY=5):
+                 offsetRangeX=5,offsetRangeY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -151,6 +151,11 @@ class CaptureManager:
         self._ssim_diff_thresh_level = structureSimilarityThreshold
         self.offsetX = offsetRangeX   # range in x direction of allowing camera shift
         self.offsetY = offsetRangeY
+
+        self._deltaArea = deltaArea     # maximum tolerance in contours area difference between live image and training sample image
+        self._deltaCenterX = deltaCenterX  # maximum tolerance in contours center coordination difference
+        self._deltaCenterY = deltaCenterY
+        self._deltaRadius = deltaRadius    # maximum tolerance in contours' minEnclosingCircle radius difference
 
 
     def openCamera(self):
@@ -361,16 +366,17 @@ class CaptureManager:
         """
 
         self._expectedModelId = expectedModelId
-        if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
-            if self._expectedModelId < SKIP_STATE_ID:  #skip 1 state without model
-                index = self._expectedModelId-1
-            else:
-                index = self._expectedModelId-2
-            self._svm = svmModelList[index]
-            self._bowExtractor = bowExtractorsList[index]
-        else:                           # multi-classfication model id is always  0
-            self._svm = svmModelList[self._expectedModelId]
-            self._bowExtractor = bowExtractorsList[self._expectedModelId]
+        if len(svmModelList) > 0 and len(bowExtractorsList) > 0:
+            if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
+                if self._expectedModelId < SKIP_STATE_ID:  #skip 1 state without model
+                    index = self._expectedModelId-1
+                else:
+                    index = self._expectedModelId-2
+                self._svm = svmModelList[index]
+                self._bowExtractor = bowExtractorsList[index]
+            else:                           # multi-classfication model id is always  0
+                self._svm = svmModelList[self._expectedModelId]
+                self._bowExtractor = bowExtractorsList[self._expectedModelId]
 
         self._interestedMask = interestedMask
         self._trainingImg = trainingImg
@@ -519,102 +525,189 @@ class CaptureManager:
     #
     #     return compareResult
 
-    def _tryShiftCamera(self, blurSnapshot,blurTrain, xOffset,yOffset):
-        """
-        using slide-window of step size 1 pixel to try in the range of [xOffset,yOffset] area
-        trying to search if there is a position offset where blurSnapshot matches with blurTrain
-        in the area of ROI
-        :param blurSnapshot: live image after preprocess
-        :param blurTrain: training image after preprocess
-        :param xOffset:  pixel number to shift in x direction
-        :param yOffset:  pixel numbers to shift in y direction
-        :return: contourLen: minimum contour length in all trials
-                threshImage: structure similarity compare returns difference image
-                score: structure similairty compare score , range (0,1)
-        """
-        contourLen = 99
-        thresh = None
-        score = 0.0
-        # warp the interested ROI
-        warpBlurTrain = warpImg(blurTrain, self._box, self._warpImgSize[0], self._warpImgSize[1])
-        for j in range(yOffset):
-            for i in range(xOffset):
-                # setup  the simulated interested box after camera is shifted in x and y direction
-                boxCameraShift = self._box + [i, j]
-                warpBlurSnapshot = warpImg(blurSnapshot, boxCameraShift, self._warpImgSize[0], self._warpImgSize[1])
-
-                if warpBlurSnapshot is not None and warpBlurTrain is not None:
-                    # use self._interestedMask to fetch only interested area data
-                    warpBlurSnapshot = np.where(self._interestedMask == 0, 0, warpBlurSnapshot)
-                    warpBlurTrain = np.where(self._interestedMask == 0, 0, warpBlurTrain)
-
-                    # compare structure similarity
-                    score, diff = compare_ssim(warpBlurSnapshot, warpBlurTrain, full=True)
-                    diff = (diff*255).astype('uint8')
-
-                    #find contours of difference between 2  warpImages, if len(cnts) > 0, then 2 warpImages are different
-                    thresh = cv.threshold(diff, 255-self._ssim_diff_thresh_level, 255, cv.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
-                    cnts, hierachy = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-                    currentLen=len(cnts)
-                    self.logger.debug('i={},j={},warp imgs structure similarity currentLen ={}'.format(i,j,currentLen))
-                    if currentLen == 0:  # found a match, exit loop
-                        #set keypoints in preview and snapshot window so they have this
-                        # information in case user pressed 'D' key to show them on window
-                        keypoints = self._detector.detect(warpBlurSnapshot, self._interestedMask)
-                        self.previewWindowManager.setKeypoints(keypoints)
-
-                        kp1 = self._detector.detect(warpBlurTrain, self._interestedMask)
-                        self._snapWindowManager.setKeypoints(kp1)
-                        contourLen = 0
-                        self.logger.info('offset_x={},offset_y={}'.format(i, j))
-                        return contourLen, thresh, score
-                    elif currentLen < contourLen:
-                        contourLen = currentLen
-                else:
-                    break
-
-        return contourLen, thresh, score
-
+    # def _tryShiftCamera(self, blurSnapshot,blurTrain, xOffset,yOffset):
+    #     """
+    #     using slide-window of step size 1 pixel to try in the range of [xOffset,yOffset] area
+    #     trying to search if there is a position offset where blurSnapshot matches with blurTrain
+    #     in the area of ROI
+    #     :param blurSnapshot: live image after preprocess
+    #     :param blurTrain: training image after preprocess
+    #     :param xOffset:  pixel number to shift in x direction
+    #     :param yOffset:  pixel numbers to shift in y direction
+    #     :return: contourLen: minimum contour length in all trials
+    #             threshImage: structure similarity compare returns difference image
+    #             score: structure similairty compare score , range (0,1)
+    #     """
+    #     contourLen = 99
+    #     thresh = None
+    #     score = 0.0
+    #     # warp the interested ROI
+    #     warpBlurTrain = warpImg(blurTrain, self._box, self._warpImgSize[0], self._warpImgSize[1])
+    #     for j in range(yOffset):
+    #         for i in range(xOffset):
+    #             # setup  the simulated interested box after camera is shifted in x and y direction
+    #             boxCameraShift = self._box + [i, j]
+    #             warpBlurSnapshot = warpImg(blurSnapshot, boxCameraShift, self._warpImgSize[0], self._warpImgSize[1])
+    # 
+    #             if warpBlurSnapshot is not None and warpBlurTrain is not None:
+    #                 # use self._interestedMask to fetch only interested area data
+    #                 warpBlurSnapshot = np.where(self._interestedMask == 0, 0, warpBlurSnapshot)
+    #                 warpBlurTrain = np.where(self._interestedMask == 0, 0, warpBlurTrain)
+    # 
+    #                 # compare structure similarity
+    #                 score, diff = compare_ssim(warpBlurSnapshot, warpBlurTrain, full=True)
+    #                 diff = (diff*255).astype('uint8')
+    # 
+    #                 #find contours of difference between 2  warpImages, if len(cnts) > 0, then 2 warpImages are different
+    #                 thresh = cv.threshold(diff, 255-self._ssim_diff_thresh_level, 255, cv.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
+    #                 cnts, hierachy = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    #                 currentLen=len(cnts)
+    #                 self.logger.debug('i={},j={},warp imgs structure similarity currentLen ={}'.format(i,j,currentLen))
+    #                 if currentLen == 0:  # found a match, exit loop
+    #                     #set keypoints in preview and snapshot window so they have this
+    #                     # information in case user pressed 'D' key to show them on window
+    #                     keypoints = self._detector.detect(warpBlurSnapshot, self._interestedMask)
+    #                     self.previewWindowManager.setKeypoints(keypoints)
+    # 
+    #                     kp1 = self._detector.detect(warpBlurTrain, self._interestedMask)
+    #                     self._snapWindowManager.setKeypoints(kp1)
+    #                     contourLen = 0
+    #                     self.logger.info('offset_x={},offset_y={}'.format(i, j))
+    #                     return contourLen, thresh, score
+    #                 elif currentLen < contourLen:
+    #                     contourLen = currentLen
+    #             else:
+    #                 break
+    # 
+    #     return contourLen, thresh, score
+    # 
+    # 
+    # def _compare(self):
+    #     """
+    #     compare designated training image with current active frame using structure similarity method,
+    #      give matched or not matched verdict
+    #     show them on screen of snapshot window
+    #     :return:
+    #     """
+    #     compareResult = dict(matched=False, predictedClassId=None, score=None)
+    # 
+    #     blurSnapshot = self.preProcess(self._frame)
+    #     blurTrain = self.preProcess(self._trainingImg)
+    #     cnts_len, thresh, score = self._tryShiftCamera(blurSnapshot, blurTrain, self.offsetX, self.offsetY)
+    #     if self._showImageType == 1:
+    #         self._frame = blurSnapshot
+    #         self._trainingImg = blurTrain
+    #     elif self._showImageType == 2:
+    #         self._frame = thresh if thresh is not None else warpImg(self._frame, self._box, self._warpImgSize[0], self._warpImgSize[1])
+    #         self._trainingImg = warpImg(self._trainingImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
+    #     if self._expectedModelId != 0:
+    #         if cnts_len == 0:   # do we find any contours in thresh image ?
+    #             cv.putText(self._frame, 'match sample {},score is {:.4f},SS_threshold={}'
+    #                        .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
+    #                        cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
+    #             self.logger.info('live image matched with training sample {}'.format(self._expectedModelId))
+    #             compareResult['matched'] = True
+    #         else:
+    #             cv.putText(self._frame, 'NOT match sample {},score is {:.4f},SS_threshold={}'
+    #                        .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
+    #                        cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+    #             self.logger.info('live image NOT matched with training sample {},cnts len={}'.
+    #                              format(self._expectedModelId, cnts_len))
+    #             compareResult['matched'] = False
+    #         compareResult['predictedClassId'] = self._expectedModelId
+    #         compareResult['score'] = score
+    #     else:
+    #         self.logger.info('impossible branch')
+    #         raise ValueError
+    # 
+    #     return compareResult
 
     def _compare(self):
         """
-        compare designated training image with current active frame using structure similarity method,
-         give matched or not matched verdict
+        compare designated training image with current active frame using contours similarity
+        if both images' contour numbers, their areas, their minEnclosingCircle center and radius are within
+        a predefined range , then give matched verdict . this method is more flexible than structure similarity
+        if both images are shifted within the predefined range, they are treated as equal.
         show them on screen of snapshot window
         :return:
         """
-        compareResult = dict(matched=False, predictedClassId=None, score=None)
+        compareResult = dict(matched=True, predictedClassId=None)
 
-        blurSnapshot = self.preProcess(self._frame)
-        blurTrain = self.preProcess(self._trainingImg)
-        cnts_len, thresh, score = self._tryShiftCamera(blurSnapshot, blurTrain, self.offsetX, self.offsetY)
+        # get the lcd Screen part rectangle from original img
+        # warp the interested ROI
+
+        snapShotImg = self._frame.copy()
+        trainImg = self._trainingImg.copy()
+        
+        imgWarp = warpImg(snapShotImg, self._box,  self._warpImgSize[0], self._warpImgSize[1])
+        imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25,125,
+                                                   1, 1,
+                                                   np.ones((3, 3)), self._interestedMask,
+                                                   minArea=100, maxArea=50000,
+                                                   cornerNumber=4, draw=self._showImageType,
+                                                   returnErodeImage=False, threshLevel=self._thresholdValue)
+
+        
+        warpTrain = warpImg(trainImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
+        imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
+                                                   1, 1,
+                                                   np.ones((3, 3)), self._interestedMask,
+                                                   minArea=100, maxArea=50000,
+                                                   cornerNumber=4, draw=self._showImageType,
+                                                   returnErodeImage=False, threshLevel=self._thresholdValue)
         if self._showImageType == 1:
-            self._frame = blurSnapshot
-            self._trainingImg = blurTrain
+            # cv.rectangle(snapShotImg, self._box[0], self._box[2], (0,255,0), 2)
+            self._frame = imgWarp
+            self._trainingImg = warpTrain
         elif self._showImageType == 2:
-            self._frame = thresh if thresh is not None else warpImg(self._frame, self._box, self._warpImgSize[0], self._warpImgSize[1])
-            self._trainingImg = warpImg(self._trainingImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
+            self._frame = imgThresh
+            self._trainingImg = imgTrainThresh
+
         if self._expectedModelId != 0:
-            if cnts_len == 0:   # do we find any contours in thresh image ?
-                cv.putText(self._frame, 'match sample {},score is {:.4f},SS_threshold={}'
-                           .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
-                           cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-                self.logger.info('live image matched with training sample {}'.format(self._expectedModelId))
-                compareResult['matched'] = True
-            else:
-                cv.putText(self._frame, 'NOT match sample {},score is {:.4f},SS_threshold={}'
-                           .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
-                           cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
-                self.logger.info('live image NOT matched with training sample {},cnts len={}'.
-                                 format(self._expectedModelId, cnts_len))
+            lenConts = len(conts)
+            lenContsTrain = len(contsTrain)
+            if lenConts != lenContsTrain:       # do we have same contours  number?
                 compareResult['matched'] = False
+                self.logger.info('not match, lenConts={},lenContsTrain={}'.format(lenConts,lenContsTrain))
+                cv.putText(self._frame, 'NOT match sample {},live={},train={}'
+                           .format(self._expectedModelId,len(conts),len(contsTrain)), (10, self._frame.shape[0]-30),
+                           cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+            else:
+                diffArea,diffCenterX,diffCenterY,diffRadius = 0,0,0,0
+                for i in range(lenConts):
+                    #  check both images' all contours,
+                    #  each contours' area, minEnclosingCircle's center and radius must be within range
+                    # before we give a matched verdict
+                    area, center, radius = conts[i][0],conts[i][1],conts[i][2]
+                    areaT, centerT, radiusT = contsTrain[i][0],contsTrain[i][1], contsTrain[i][2]
+                    diffArea = abs(area-areaT)
+                    diffCenterX = abs(center[0]-centerT[0])
+                    diffCenterY = abs(center[1]-centerT[1])
+                    diffRadius = abs(radius-radiusT)
+                    self.logger.debug('diffArea={},diffCenter=({},{}),radius={}'.format(diffArea, diffCenterX,
+                                                                                   diffCenterY, diffRadius))
+                    if diffArea > self._deltaArea or diffRadius > self._deltaRadius \
+                            or diffCenterX > self._deltaCenterX or diffCenterY > self._deltaCenterY:
+                        compareResult['matched'] = False
+                        break
+                if compareResult['matched']:
+                    cv.putText(self._frame, 'match sample {},diff={},({},{}),{}'
+                               .format(self._expectedModelId, diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
+                    self.logger.info('live image matched with training sample {}'.format(self._expectedModelId))
+                else:
+                    cv.putText(self._frame, 'NOT match sample {},diff={},({},{}),{}'
+                               .format(self._expectedModelId,diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
+                    self.logger.info('live image NOT matched with training sample {}'.
+                                     format(self._expectedModelId))
             compareResult['predictedClassId'] = self._expectedModelId
-            compareResult['score'] = score
         else:
             self.logger.info('impossible branch')
             raise ValueError
 
         return compareResult
+
 
 
 
