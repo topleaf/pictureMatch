@@ -83,10 +83,11 @@ class WindowManager:
         :return: width,height after resizing
         """
         cv.moveWindow(self._windowName, x, y)
-        #draw a red rectangle over the region specified by self._rectCords
+        #draw a cyan rectangle over the region specified by self._rectCords, if in binary image,
+        # it will display as light white color
         if self._isDrawRect:
             if self.rectCords is not None:
-                cv.polylines(frame, [self._rectCords], True, (0, 255, 125), 3)
+                cv.polylines(frame, [self._rectCords], True, (255, 255, 125), 3)
             if self._keyPoints is not None:
                 frame = cv.drawKeypoints(image=frame, outImage=frame, keypoints=self._keyPoints, flags=4, color=(51,163,236))
         width = int(frame.shape[1])

@@ -157,7 +157,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 # find contours that  are closed graph with minArea,cornerNumber
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,interestMask,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
-                        draw=True, returnErodeImage =True,threshLevel=20):
+                        draw=1, returnErodeImage =True,threshLevel=20):
     """
 
     :param img: original image
@@ -168,8 +168,8 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     :param minArea:  contour has larger area than this minimum area
     :param maxArea:  contour has smaller area than this maximum area
     :param cornerNumber:  contour has corners number that are larger than this
-    :param draw:  draw a rectangle and a circle around detected contour  or not ?
-    :return: blurred  img , list of satisfactory contours_related info
+    :param draw:  draw a rectangle and a circle around detected contour  in what color [1,2]
+    :return: thresh  img , list of satisfactory contours_related info
             (area, center, radius, approx, boundingbox ), original image
     """
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -227,13 +227,17 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
             if draw:
                 cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
                 cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
+                if not returnErodeImage:   # return thresh_img
+                    cv.drawContours(thresh_img, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
+                    cv.circle(thresh_img, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
+
 
             finalContours.append((area, center, radius, approx, box))
-    if draw:  # draw interestMask rectangle
-        maskContours, hierarchy = cv.findContours(interestMask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        cv.drawContours(img, maskContours, -1, color=(0,255,0),thickness=2)
+    # # no need to draw for draw==1, which has been better handled by displayWindowclass
+    # if draw == 2 and not returnErodeImage:  # always draw interestMask rectangle in WHITE on thresh_img only,
+    #     maskContours, hierarchy = cv.findContours(interestMask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    #     cv.drawContours(thresh_img, maskContours, -1, color=(255,255,255),thickness=2)
 
-    # cv.imshow(windowName, img)
     # sort the list by contour's area, so that the larger contours are in the first
     finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
     if returnErodeImage:

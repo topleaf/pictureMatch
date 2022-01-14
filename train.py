@@ -53,10 +53,10 @@ DELAY_IN_SECONDS = 1
 # wP = 300*scale
 # hP = 300*scale
 
-SX, SY = 528, 106
-EX, EY = 1059, 677
-RU_X, RU_Y = 1057, 101
-LB_X, LB_Y = 523, 675
+SX, SY = 542, 103
+EX, EY = 1063, 687
+RU_X, RU_Y = 1072, 114
+LB_X, LB_Y = 529, 675
 #
 # SX, SY = 911, 87
 # EX, EY = 1500, 756
@@ -662,9 +662,9 @@ class BuildDatabase(object):
             if response[:-1] == command[:]:
                 self.logger.info('===>>> get valid response from DUT,\nDUT moves to previous image type {}'.format(self._onDisplayId))
         elif keyCode == ord('d') or keyCode == ord('D'):  #draw rectangle over interestedMask Area
-            if self._captureManager.displayImageType in [0, 1]:
+            if self._captureManager.displayImageType in [0]:
                 roi = self._roi_box
-            elif self._captureManager.displayImageType == 2:
+            elif self._captureManager.displayImageType in[1, 2]:
                 roi = self._warpImgBox
             self._snapshotWindowManager.setRectCords(roi)
             self._windowManager.setRectCords(roi)
@@ -689,7 +689,7 @@ class BuildDatabase(object):
             self.logger.info('show original image in window')
         elif keyCode == ord('p'):  #show processed image in live capture window
             self._captureManager.setDisplayImageType(1)
-            roi = self._roi_box
+            roi = self._warpImgBox
             self._snapshotWindowManager.setRectCords(roi)
             self._windowManager.setRectCords(roi)
             self.logger.info('show image after preProcessing in  window')
