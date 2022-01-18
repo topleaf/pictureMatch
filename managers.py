@@ -115,7 +115,7 @@ class WindowManager:
 
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
-                 snapWindowManager = None, shouldMirrorPreview=False, width=640, height=480,
+                 snapWindowManager = None, promptWindowManager=None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
                  roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23,
                  offsetRangeX=5,offsetRangeY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
@@ -127,10 +127,11 @@ class CaptureManager:
         self.previewWindowManager = previewWindowManger
         self.shouldMirrorPreview=shouldMirrorPreview
         self._snapWindowManager = snapWindowManager
+        self._promptWindowManager = promptWindowManager
         self._frame = None
         self._channel = 0
         self._imageFileName = None
-        self._expectedModelId = None     # use current frame to  compare with which trained Svm model?
+        self._expectedTrainingImageId = None     # use current frame to  compare with which predefined training image id?
         self._svm = None
         self._bowExtractor = None
         self._interestedMask = None     # region of interest to be compared with trained model in self._frame
@@ -280,7 +281,7 @@ class CaptureManager:
 
     @property
     def isComparingTarget(self):
-        return self._expectedModelId is not None
+        return self._expectedTrainingImageId is not None
 
 
     def enterFrame(self):
@@ -309,7 +310,7 @@ class CaptureManager:
         # compare it with target trained model , if needed
         if self.isComparingTarget:
             compareResult = self._compare()
-            self._expectedModelId = None
+            self._expectedTrainingImageId = None
 
         # self.logger.debug('in exitFrame(): get valid frame, display it ')
         # draw to the windowPreview , if any
@@ -352,72 +353,57 @@ class CaptureManager:
         self._imageFileName = filename
         return '0'
 
-    def setCompareModel(self, expectedModelId, svmModelList,
-                        bowExtractorsList, interestedMask,
+    def setCompareModel(self, expectedTrainingImageId, interestedMask,
                         trainingImg,enableSmooth):
         """
 
-        :param expectedModelId:
-        :param svmModelList:
-        :param bowExtractorsList:
+        :param expectedTrainingImageId:
         :param interestedMask:
         :param trainingImg:
         :param enableSmooth:
         :return:
         """
 
-        self._expectedModelId = expectedModelId
-        if len(svmModelList) > 0 and len(bowExtractorsList) > 0:
-            if self._expectedModelId != 0:   # single classification model ids are from 1 to STATE_NUM
-                if self._expectedModelId < SKIP_STATE_ID:  #skip 1 state without model
-                    index = self._expectedModelId-1
-                else:
-                    index = self._expectedModelId-2
-                self._svm = svmModelList[index]
-                self._bowExtractor = bowExtractorsList[index]
-            else:                           # multi-classfication model id is always  0
-                self._svm = svmModelList[self._expectedModelId]
-                self._bowExtractor = bowExtractorsList[self._expectedModelId]
-
+        self._expectedTrainingImageId = expectedTrainingImageId
         self._interestedMask = interestedMask
         self._trainingImg = trainingImg
         self._enableSmooth = enableSmooth
 
 
-    def preProcess(self, image):
-        """
-        binarize original image according to defined threshold value and blurLevel
-        :param image: original image in bgr mode
-        :return: thresh and blurred image with defined preprocess parameters
-        """
-        gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-
-        # first trial, only do threshold, result is OK
-        # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-        # return cv.blur(binary, (self._blurLevel, self._blurLevel))
-
-        # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
-        # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
-        # training time period = 1497 seconds
-        # ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-        # blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
-        # imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
-        # imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
-
-        #third trial, at first use smooth in CaptureManager to remove camera noise, then
-        # use gaussian blur,threshold,dilate and erode
-        # blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
-        # ret, thresh_img = cv.threshold(blur, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-        # imgDilate = cv.dilate(thresh_img, kernel=np.ones((3, 3)), iterations=1)
-        # imgErode = cv.erode(imgDilate, kernel=np.ones((3, 3)), iterations=1)
-        # return imgErode
-
-        #fourth trial, at first use smooth in CaptureManager to remove camera noise, then
-        # use gaussian blur only, use structure similarity to compare
-        blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
-
-        return blur
-
+    # def preProcess(self, image):
+    #     """
+    #     binarize original image according to defined threshold value and blurLevel
+    #     :param image: original image in bgr mode
+    #     :return: thresh and blurred image with defined preprocess parameters
+    #     """
+    #     gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    #
+    #     # first trial, only do threshold, result is OK
+    #     # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+    #     # return cv.blur(binary, (self._blurLevel, self._blurLevel))
+    #
+    #     # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
+    #     # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
+    #     # training time period = 1497 seconds
+    #     # ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+    #     # blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
+    #     # imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
+    #     # imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
+    #
+    #     #third trial, at first use smooth in CaptureManager to remove camera noise, then
+    #     # use gaussian blur,threshold,dilate and erode
+    #     # blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
+    #     # ret, thresh_img = cv.threshold(blur, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+    #     # imgDilate = cv.dilate(thresh_img, kernel=np.ones((3, 3)), iterations=1)
+    #     # imgErode = cv.erode(imgDilate, kernel=np.ones((3, 3)), iterations=1)
+    #     # return imgErode
+    #
+    #     #fourth trial, at first use smooth in CaptureManager to remove camera noise, then
+    #     # use gaussian blur only, use structure similarity to compare
+    #     blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
+    #
+    #     return blur
+    #
 
     # def _compare(self):
     #     """
@@ -455,7 +441,7 @@ class CaptureManager:
     #         _, result = self._svm.predict(bowFeature)
     #         a, pred = self._svm.predict(bowFeature, flags=cv.ml.STAT_MODEL_RAW_OUTPUT)
     #         score = pred[0][0]
-    #         self.logger.info('SVM model id:{}, Class:{:.1f}, Score:{:.4f}'.format(self._expectedModelId, result[0][0], score))
+    #         self.logger.info('SVM model id:{}, Class:{:.1f}, Score:{:.4f}'.format(self._expectedTrainingImageId, result[0][0], score))
     #
     #         if self._showImageType == 1:
     #             self._frame = blurSnapshot
@@ -463,38 +449,38 @@ class CaptureManager:
     #         elif self._showImageType == 2:
     #             self._frame = warpImg(self._frame, self._box, self._warpImgSize[0], self._warpImgSize[1])
     #             self._trainingImg = warpImg(self._trainingImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
-    #         if self._expectedModelId != 0: ## using single classification model
+    #         if self._expectedTrainingImageId != 0: ## using single classification model
     #             if result[0][0] == 1.0:
     #                 if score <= -0.99:
     #                     cv.putText(self._frame, 'match model {},score is {:.4f}'
-    #                                .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
+    #                                .format(self._expectedTrainingImageId, score), (10, self._frame.shape[0]-30),
     #                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-    #                     self.logger.info('live image matched with svm model {}'.format(self._expectedModelId))
+    #                     self.logger.info('live image matched with svm model {}'.format(self._expectedTrainingImageId))
     #                     compareResult['matched'] = True
     #
     #                 else:
     #                     cv.putText(self._frame, 'might NOT match svm model {},score is {:.4f}'
-    #                                .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
+    #                                .format(self._expectedTrainingImageId, score), (10, self._frame.shape[0]-30),
     #                                cv.FONT_HERSHEY_COMPLEX, 2, (255, 0, 255), thickness=6)
-    #                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+    #                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedTrainingImageId))
     #                     compareResult['matched'] = False
-    #                 compareResult['predictedClassId'] = self._expectedModelId
+    #                 compareResult['predictedClassId'] = self._expectedTrainingImageId
     #                 compareResult['score'] = score
     #             elif result[0][0] == -1.0:  # not matched
     #                 compareResult['matched'] = False
-    #                 compareResult['predictedClassId'] = self._expectedModelId
+    #                 compareResult['predictedClassId'] = self._expectedTrainingImageId
     #                 compareResult['score'] = score
     #                 if score >= 0.99:
     #                     cv.putText(self._frame, 'Sure Not match with svm model {},score is {:.4f}'
-    #                                .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
+    #                                .format(self._expectedTrainingImageId, score), (10, self._frame.shape[0]-30),
     #                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
-    #                     self.logger.info('live image NOT match with svm model {}'.format(self._expectedModelId))
+    #                     self.logger.info('live image NOT match with svm model {}'.format(self._expectedTrainingImageId))
     #                 else:
     #                     cv.putText(self._frame, 'NOT match with svm model {},score is {:.4f}'
-    #                                .format(self._expectedModelId, score), (10, self._frame.shape[0]-30),
+    #                                .format(self._expectedTrainingImageId, score), (10, self._frame.shape[0]-30),
     #                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
     #
-    #                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedModelId))
+    #                     self.logger.info('currentImage does NOT match with svm model {}'.format(self._expectedTrainingImageId))
     #         else:       # use unique multiclassification model to predict
     #             predictedClassId = result[0][0]
     #             if predictedClassId in range(1, STATES_NUM+1, 1):
@@ -601,21 +587,21 @@ class CaptureManager:
     #     elif self._showImageType == 2:
     #         self._frame = thresh if thresh is not None else warpImg(self._frame, self._box, self._warpImgSize[0], self._warpImgSize[1])
     #         self._trainingImg = warpImg(self._trainingImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
-    #     if self._expectedModelId != 0:
+    #     if self._expectedTrainingImageId != 0:
     #         if cnts_len == 0:   # do we find any contours in thresh image ?
     #             cv.putText(self._frame, 'match sample {},score is {:.4f},SS_threshold={}'
-    #                        .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
+    #                        .format(self._expectedTrainingImageId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
     #                        cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-    #             self.logger.info('live image matched with training sample {}'.format(self._expectedModelId))
+    #             self.logger.info('live image matched with training sample {}'.format(self._expectedTrainingImageId))
     #             compareResult['matched'] = True
     #         else:
     #             cv.putText(self._frame, 'NOT match sample {},score is {:.4f},SS_threshold={}'
-    #                        .format(self._expectedModelId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
+    #                        .format(self._expectedTrainingImageId, score,self._ssim_diff_thresh_level), (10, self._frame.shape[0]-30),
     #                        cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
     #             self.logger.info('live image NOT matched with training sample {},cnts len={}'.
-    #                              format(self._expectedModelId, cnts_len))
+    #                              format(self._expectedTrainingImageId, cnts_len))
     #             compareResult['matched'] = False
-    #         compareResult['predictedClassId'] = self._expectedModelId
+    #         compareResult['predictedClassId'] = self._expectedTrainingImageId
     #         compareResult['score'] = score
     #     else:
     #         self.logger.info('impossible branch')
@@ -664,14 +650,14 @@ class CaptureManager:
             self._frame = imgThresh
             self._trainingImg = imgTrainThresh
 
-        if self._expectedModelId != 0:
+        if self._expectedTrainingImageId != 0:
             lenConts = len(conts)
             lenContsTrain = len(contsTrain)
             if lenConts != lenContsTrain:       # do we have same contours  number?
                 compareResult['matched'] = False
                 self.logger.info('not match, lenConts={},lenContsTrain={}'.format(lenConts,lenContsTrain))
                 cv.putText(self._frame, 'NOT match sample {},live={},train={}'
-                           .format(self._expectedModelId,len(conts),len(contsTrain)), (10, self._frame.shape[0]-30),
+                           .format(self._expectedTrainingImageId,len(conts),len(contsTrain)), (10, self._frame.shape[0]-30),
                            cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
             else:
                 diffArea,diffCenterX,diffCenterY,diffRadius = 0,0,0,0
@@ -693,16 +679,16 @@ class CaptureManager:
                         break
                 if compareResult['matched']:
                     cv.putText(self._frame, 'match sample {},diff={},({},{}),{}'
-                               .format(self._expectedModelId, diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               .format(self._expectedTrainingImageId, diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
-                    self.logger.info('live image matched with training sample {}'.format(self._expectedModelId))
+                    self.logger.info('live image matched with training sample {}'.format(self._expectedTrainingImageId))
                 else:
                     cv.putText(self._frame, 'NOT match sample {},diff={},({},{}),{}'
-                               .format(self._expectedModelId,diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               .format(self._expectedTrainingImageId,diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
                     self.logger.info('live image NOT matched with training sample {}'.
-                                     format(self._expectedModelId))
-            compareResult['predictedClassId'] = self._expectedModelId
+                                     format(self._expectedTrainingImageId))
+            compareResult['predictedClassId'] = self._expectedTrainingImageId
         else:
             self.logger.info('impossible branch')
             raise ValueError
