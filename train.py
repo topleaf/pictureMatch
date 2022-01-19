@@ -50,10 +50,10 @@ DELAY_IN_SECONDS = 1
 
 
 # define the absolute coordinations of the lcd screen in the image captured by camera, in pixel
-SX, SY = 542, 103       # left top corner
-EX, EY = 1063, 687      # right bottom corner
-RU_X, RU_Y = 1072, 114  # right top corner
-LB_X, LB_Y = 529, 675   # left bottom corner
+SX, SY = 683, 257       # left top corner
+EX, EY = 1234, 890      # right bottom corner
+RU_X, RU_Y = 1234, 257  # right top corner
+LB_X, LB_Y = 683, 890   # left bottom corner
 #
 
 class BuildDatabase(object):
@@ -126,6 +126,7 @@ class BuildDatabase(object):
         self._onDisplayId = STATES_NUM
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
         self._startTime = time.time()
+        self._readyToNext = False       # OK to move to next round , test next LCD module
 
     def run(self):
         #  step 1: capture and save all positive training images to respective image folders/pos-x
@@ -215,9 +216,6 @@ class BuildDatabase(object):
                     continue
         # load expected training sample
         firstExpectedTrainingFileLocation = self._path(self.expectedTrainingImageId, self.positive, 0)
-                                                # join(self._folderName,
-                                                #  str(self.expectedTrainingImageId),
-                                                #  self.positive +'0.' + self._imgFormat)
         self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
         if self._expectedTrainingImg is None:
             self.logger.error('training sample file {} deleted?'
@@ -232,6 +230,9 @@ class BuildDatabase(object):
         :return:
         """
         while self._windowManager.isWindowCreated:
+            # reset serial port buffer, discard garbage data once every time operator changes LCD module
+            self._communicationManager.resetInputBuffer()
+            self._communicationManager.resetOutputBuffer()
             for self._current in self._predefinedPatterns:
                 if self._current == SKIP_STATE_ID:
                     self.logger.debug('skip capturing training sample of id = {}'.format(SKIP_STATE_ID))
@@ -256,8 +257,8 @@ class BuildDatabase(object):
                                               'please set --skipCapture 0 and rerun'.
                                               format(firstExpectedTrainingFileLocation))
                             raise ValueError
-
-                        self._captureManager.openCamera()
+                        if not self._captureManager.cameraIsOpened:
+                            self._captureManager.openCamera()
                         self._waitFrameCount = 0
                         while self._windowManager.isWindowCreated and self._waitFrameCount <= \
                                 self._trainingFrameCount:
@@ -320,8 +321,23 @@ class BuildDatabase(object):
 
 
     def reportTestResult(self):
-        self._communicationManager.close()
+        """
+        report this LCD's overall test result, on windowManager screen,prompt operator to remove current LCD and install
+        next LCD module
+        :return:
+        """
+        # self._communicationManager.close()
         self.logger.info('result is: {}'.format(self.__testResults))
+        self._readyToNext = False
+        if not self._captureManager.cameraIsOpened:
+            self._captureManager.openCamera()
+        while self._windowManager.isWindowCreated and self._readyToNext is False:
+            self._captureManager.enterFrame()
+            # report last result(Pass or fail), prompt user to switch LCD module
+            prompt = 'change LCD module, when ready, press RETURN to continue'
+            self._captureManager.setUserPrompt(self.__testResults, prompt)
+            compareResult = self._captureManager.exitFrame()
+            self._windowManager.processEvents()
 
 
     def onKeyPress(self,keyCode):
@@ -415,6 +431,10 @@ class BuildDatabase(object):
             self._snapshotWindowManager.setRectCords(roi)
             self._windowManager.setRectCords(roi)
             self.logger.info('show warped image of interested region in window')
+        elif keyCode == 0x0d:  # return key to start new round to test next LCD module
+            self._readyToNext = True
+            self.__testResults.clear()
+            self._captureManager.setUserPrompt(self.__testResults, None)
         else:
             self.logger.info('unknown key {} pressed'.format(chr(keyCode)))
 

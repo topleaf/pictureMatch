@@ -158,11 +158,12 @@ class CaptureManager:
         self._deltaCenterX = deltaCenterX  # maximum tolerance in contours center coordination difference
         self._deltaCenterY = deltaCenterY
         self._deltaRadius = deltaRadius    # maximum tolerance in contours' minEnclosingCircle radius difference
+        self._userPrompt = None         # userPrompt in Str, to be displayed on screen if any
 
 
     def openCamera(self):
         self._capture = cv.VideoCapture(self._deviceId)
-        if not self._capture.isOpened():
+        if not self.cameraIsOpened:
             raise Exception('Could not open video device {}'.format(self._deviceId))
         self._setCaptureResolution(self._cameraWidth, self._cameraHeight)
         # set camera buffersize to 1
@@ -184,7 +185,9 @@ class CaptureManager:
 
     @property
     def cameraIsOpened(self):
-        return self._capture.isOpened()
+        if self._capture is not None:
+            return self._capture.isOpened()
+        return False
 
     def _setCaptureResolution(self,width,height):
         """
@@ -283,6 +286,32 @@ class CaptureManager:
     def isComparingTarget(self):
         return self._expectedTrainingImageId is not None
 
+    @property
+    def hasUserPrompt(self):
+        return self._userPrompt is not None
+
+    def setUserPrompt(self, testResultList, prompt):
+        """
+
+        :param testResultList:  list of [0,1,... ...]
+        :param prompt:  str , to be displayed on screen, or None,
+        :return:
+        """
+        if prompt is None:
+            self._userPrompt = prompt
+            return
+
+        failureItems = []
+        for i in range(len(testResultList)):
+            if testResultList[i] == 0:
+                failureItems.append(i+1)
+
+        if len(failureItems) != 0:
+            self._userPrompt = 'FAIL! ({}).'.format(failureItems)
+        else:
+            self._userPrompt = "PASS,"
+
+        self._userPrompt += prompt
 
     def enterFrame(self):
         """
@@ -306,8 +335,12 @@ class CaptureManager:
             self.logger.warning('in exitFrame: self._frame is None, retrieve an empty frame from camera')
             return None
 
+        if self.hasUserPrompt:
+            cv.putText(self._frame, self._userPrompt, (10, self._frame.shape[0]-30),
+                       cv.FONT_HERSHEY_COMPLEX, 2, (255, 255, 255), thickness=2)
+
         compareResult = None
-        # compare it with target trained model , if needed
+        # compare it with specified training image , if needed
         if self.isComparingTarget:
             compareResult = self._compare()
             self._expectedTrainingImageId = None
@@ -905,3 +938,9 @@ class CommunicationManager:
 
     def close(self):
         self._ser.close()
+
+    def resetInputBuffer(self):
+        self._ser.reset_input_buffer()
+
+    def resetOutputBuffer(self):
+        self._ser.reset_output_buffer()

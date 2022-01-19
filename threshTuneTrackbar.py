@@ -181,7 +181,7 @@ if __name__ == '__main__':
     switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n ' \
              '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 8, func)
-    cv2.setTrackbarPos(switch, windowName, 8)
+    cv2.setTrackbarPos(switch, windowName, 2)
     cv2.setTrackbarPos(tbCameraShiftX, windowName, 0)
     cv2.setTrackbarPos(tbCameraShiftY, windowName, 0)
     cv2.setTrackbarPos(tbSSIMDiffThresh,windowName, 128)
