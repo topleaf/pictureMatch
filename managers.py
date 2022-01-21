@@ -297,7 +297,7 @@ class CaptureManager:
         :param prompt:  str , to be displayed on screen, or None,
         :return:
         """
-        if prompt is None:
+        if prompt is None:  # clear content
             self._userPrompt = prompt
             return
 
@@ -306,12 +306,15 @@ class CaptureManager:
             if testResultList[i] == 0:
                 failureItems.append(i+1)
 
+        self._userPrompt = dict(verdict='', color=(0, 255, 0))
         if len(failureItems) != 0:
-            self._userPrompt = 'FAIL! ({}).'.format(failureItems)
+            self._userPrompt['verdict'] = 'FAIL! ({})'.format(failureItems)
+            self._userPrompt['color'] = (0, 0, 255)
         else:
-            self._userPrompt = "PASS,"
+            self._userPrompt['verdict'] = "PASS,"
+            self._userPrompt['color'] = (0, 255, 0)
 
-        self._userPrompt += prompt
+        self._userPrompt['verdict'] += prompt
 
     def enterFrame(self):
         """
@@ -336,8 +339,8 @@ class CaptureManager:
             return None
 
         if self.hasUserPrompt:
-            cv.putText(self._frame, self._userPrompt, (10, self._frame.shape[0]-30),
-                       cv.FONT_HERSHEY_COMPLEX, 2, (255, 255, 255), thickness=2)
+            cv.putText(self._frame, self._userPrompt['verdict'], (10, 100),
+                       cv.FONT_HERSHEY_COMPLEX, 2, self._userPrompt['color'], thickness=2)
 
         compareResult = None
         # compare it with specified training image , if needed
@@ -381,10 +384,9 @@ class CaptureManager:
         """
         save the next frame to disk with the name filename
         :param filename:
-        :return:  '0' success, '1' failed
+        :return:  None
         """
         self._imageFileName = filename
-        return '0'
 
     def setCompareModel(self, expectedTrainingImageId, interestedMask,
                         trainingImg,enableSmooth):
@@ -403,40 +405,40 @@ class CaptureManager:
         self._enableSmooth = enableSmooth
 
 
-    # def preProcess(self, image):
-    #     """
-    #     binarize original image according to defined threshold value and blurLevel
-    #     :param image: original image in bgr mode
-    #     :return: thresh and blurred image with defined preprocess parameters
-    #     """
-    #     gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    #
-    #     # first trial, only do threshold, result is OK
-    #     # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-    #     # return cv.blur(binary, (self._blurLevel, self._blurLevel))
-    #
-    #     # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
-    #     # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
-    #     # training time period = 1497 seconds
-    #     # ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-    #     # blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
-    #     # imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
-    #     # imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
-    #
-    #     #third trial, at first use smooth in CaptureManager to remove camera noise, then
-    #     # use gaussian blur,threshold,dilate and erode
-    #     # blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
-    #     # ret, thresh_img = cv.threshold(blur, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
-    #     # imgDilate = cv.dilate(thresh_img, kernel=np.ones((3, 3)), iterations=1)
-    #     # imgErode = cv.erode(imgDilate, kernel=np.ones((3, 3)), iterations=1)
-    #     # return imgErode
-    #
-    #     #fourth trial, at first use smooth in CaptureManager to remove camera noise, then
-    #     # use gaussian blur only, use structure similarity to compare
-    #     blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
-    #
-    #     return blur
-    #
+    def preProcess(self, image):
+        """
+        binarize original image according to defined threshold value and blurLevel
+        :param image: original image in bgr mode
+        :return: thresh and blurred image with defined preprocess parameters
+        """
+        gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
+        # first trial, only do threshold, result is OK
+        # ret, binary = cv.threshold(gray,self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        # return cv.blur(binary, (self._blurLevel, self._blurLevel))
+
+        # second trial, add erode and dilate to further smoothing image,removing camera pixel dance
+        # result is good with STATES_NUM 52, self.BOW_CLUSTER_NUM=STATES_NUM*10, duration = 20 (sample training pic) per class
+        # training time period = 1497 seconds
+        # ret, thresh_img = cv.threshold(gray, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        # blur = cv.blur(thresh_img, (self._blurLevel, self._blurLevel))
+        # imgErode = cv.erode(blur, kernel=np.ones((3, 3)), iterations=1)
+        # imgDilate = cv.dilate(imgErode, kernel=np.ones((3, 3)), iterations=1)
+
+        #third trial, at first use smooth in CaptureManager to remove camera noise, then
+        # use gaussian blur,threshold,dilate and erode
+        # blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
+        # ret, thresh_img = cv.threshold(blur, self._thresholdValue, 255, cv.THRESH_BINARY_INV)
+        # imgDilate = cv.dilate(thresh_img, kernel=np.ones((3, 3)), iterations=1)
+        # imgErode = cv.erode(imgDilate, kernel=np.ones((3, 3)), iterations=1)
+        # return imgErode
+
+        #fourth trial, at first use smooth in CaptureManager to remove camera noise, then
+        # use gaussian blur only, use structure similarity to compare
+        blur = cv.GaussianBlur(gray, (self._blurLevel, self._blurLevel), 0)
+
+        return blur
+
 
     # def _compare(self):
     #     """
@@ -545,63 +547,63 @@ class CaptureManager:
     #
     #     return compareResult
 
-    # def _tryShiftCamera(self, blurSnapshot,blurTrain, xOffset,yOffset):
-    #     """
-    #     using slide-window of step size 1 pixel to try in the range of [xOffset,yOffset] area
-    #     trying to search if there is a position offset where blurSnapshot matches with blurTrain
-    #     in the area of ROI
-    #     :param blurSnapshot: live image after preprocess
-    #     :param blurTrain: training image after preprocess
-    #     :param xOffset:  pixel number to shift in x direction
-    #     :param yOffset:  pixel numbers to shift in y direction
-    #     :return: contourLen: minimum contour length in all trials
-    #             threshImage: structure similarity compare returns difference image
-    #             score: structure similairty compare score , range (0,1)
-    #     """
-    #     contourLen = 99
-    #     thresh = None
-    #     score = 0.0
-    #     # warp the interested ROI
-    #     warpBlurTrain = warpImg(blurTrain, self._box, self._warpImgSize[0], self._warpImgSize[1])
-    #     for j in range(yOffset):
-    #         for i in range(xOffset):
-    #             # setup  the simulated interested box after camera is shifted in x and y direction
-    #             boxCameraShift = self._box + [i, j]
-    #             warpBlurSnapshot = warpImg(blurSnapshot, boxCameraShift, self._warpImgSize[0], self._warpImgSize[1])
-    # 
-    #             if warpBlurSnapshot is not None and warpBlurTrain is not None:
-    #                 # use self._interestedMask to fetch only interested area data
-    #                 warpBlurSnapshot = np.where(self._interestedMask == 0, 0, warpBlurSnapshot)
-    #                 warpBlurTrain = np.where(self._interestedMask == 0, 0, warpBlurTrain)
-    # 
-    #                 # compare structure similarity
-    #                 score, diff = compare_ssim(warpBlurSnapshot, warpBlurTrain, full=True)
-    #                 diff = (diff*255).astype('uint8')
-    # 
-    #                 #find contours of difference between 2  warpImages, if len(cnts) > 0, then 2 warpImages are different
-    #                 thresh = cv.threshold(diff, 255-self._ssim_diff_thresh_level, 255, cv.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
-    #                 cnts, hierachy = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    #                 currentLen=len(cnts)
-    #                 self.logger.debug('i={},j={},warp imgs structure similarity currentLen ={}'.format(i,j,currentLen))
-    #                 if currentLen == 0:  # found a match, exit loop
-    #                     #set keypoints in preview and snapshot window so they have this
-    #                     # information in case user pressed 'D' key to show them on window
-    #                     keypoints = self._detector.detect(warpBlurSnapshot, self._interestedMask)
-    #                     self.previewWindowManager.setKeypoints(keypoints)
-    # 
-    #                     kp1 = self._detector.detect(warpBlurTrain, self._interestedMask)
-    #                     self._snapWindowManager.setKeypoints(kp1)
-    #                     contourLen = 0
-    #                     self.logger.info('offset_x={},offset_y={}'.format(i, j))
-    #                     return contourLen, thresh, score
-    #                 elif currentLen < contourLen:
-    #                     contourLen = currentLen
-    #             else:
-    #                 break
-    # 
-    #     return contourLen, thresh, score
-    # 
-    # 
+    def _tryShiftCamera(self, blurSnapshot,blurTrain, xOffset,yOffset):
+        """
+        using slide-window of step size 1 pixel to try in the range of [xOffset,yOffset] area
+        trying to search if there is a position offset where blurSnapshot matches with blurTrain
+        in the area of ROI
+        :param blurSnapshot: live image after preprocess
+        :param blurTrain: training image after preprocess
+        :param xOffset:  pixel number to shift in x direction
+        :param yOffset:  pixel numbers to shift in y direction
+        :return: contourLen: minimum contour length in all trials
+                threshImage: structure similarity compare returns difference image
+                score: structure similairty compare score , range (0,1)
+        """
+        contourLen = 99
+        thresh = None
+        score = 0.0
+        # warp the interested ROI
+        warpBlurTrain = warpImg(blurTrain, self._box, self._warpImgSize[0], self._warpImgSize[1])
+        for j in range(yOffset):
+            for i in range(xOffset):
+                # setup  the simulated interested box after camera is shifted in x and y direction
+                boxCameraShift = self._box + [i, j]
+                warpBlurSnapshot = warpImg(blurSnapshot, boxCameraShift, self._warpImgSize[0], self._warpImgSize[1])
+
+                if warpBlurSnapshot is not None and warpBlurTrain is not None:
+                    # use self._interestedMask to fetch only interested area data
+                    warpBlurSnapshot = np.where(self._interestedMask == 0, 0, warpBlurSnapshot)
+                    warpBlurTrain = np.where(self._interestedMask == 0, 0, warpBlurTrain)
+
+                    # compare structure similarity
+                    score, diff = compare_ssim(warpBlurSnapshot, warpBlurTrain, full=True)
+                    diff = (diff*255).astype('uint8')
+
+                    #find contours of difference between 2  warpImages, if len(cnts) > 0, then 2 warpImages are different
+                    thresh = cv.threshold(diff, 255-self._ssim_diff_thresh_level, 255, cv.THRESH_BINARY_INV)[1]  #cv2.THRESH_OTSU
+                    cnts, hierachy = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+                    currentLen=len(cnts)
+                    self.logger.debug('i={},j={},warp imgs structure similarity currentLen ={}'.format(i,j,currentLen))
+                    if currentLen == 0:  # found a match, exit loop
+                        #set keypoints in preview and snapshot window so they have this
+                        # information in case user pressed 'D' key to show them on window
+                        keypoints = self._detector.detect(warpBlurSnapshot, self._interestedMask)
+                        self.previewWindowManager.setKeypoints(keypoints)
+
+                        kp1 = self._detector.detect(warpBlurTrain, self._interestedMask)
+                        self._snapWindowManager.setKeypoints(kp1)
+                        contourLen = 0
+                        self.logger.info('offset_x={},offset_y={}'.format(i, j))
+                        return contourLen, thresh, score
+                    elif currentLen < contourLen:
+                        contourLen = currentLen
+                else:
+                    break
+
+        return contourLen, thresh, score
+
+
     # def _compare(self):
     #     """
     #     compare designated training image with current active frame using structure similarity method,
@@ -610,7 +612,7 @@ class CaptureManager:
     #     :return:
     #     """
     #     compareResult = dict(matched=False, predictedClassId=None, score=None)
-    # 
+    #
     #     blurSnapshot = self.preProcess(self._frame)
     #     blurTrain = self.preProcess(self._trainingImg)
     #     cnts_len, thresh, score = self._tryShiftCamera(blurSnapshot, blurTrain, self.offsetX, self.offsetY)
@@ -639,7 +641,7 @@ class CaptureManager:
     #     else:
     #         self.logger.info('impossible branch')
     #         raise ValueError
-    # 
+    #
     #     return compareResult
 
     def _compare(self):
@@ -658,7 +660,7 @@ class CaptureManager:
 
         snapShotImg = self._frame.copy()
         trainImg = self._trainingImg.copy()
-        
+
         imgWarp = warpImg(snapShotImg, self._box,  self._warpImgSize[0], self._warpImgSize[1])
         imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25,125,
                                                    1, 1,
@@ -667,7 +669,7 @@ class CaptureManager:
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False, threshLevel=self._thresholdValue)
 
-        
+
         warpTrain = warpImg(trainImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
         imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
                                                    1, 1,

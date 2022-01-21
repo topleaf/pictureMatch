@@ -197,9 +197,9 @@ if __name__ == '__main__':
     kernel = np.ones((3, 3))
     background = None
     backGroundGray = None
-    if background is None:   # get the first frame , after gaussian blur, used as benchmark standard
-        background = cv2.imread('/media/newdiskp1/picMatch/trainingImages/1/pos-0.png', cv2.IMREAD_UNCHANGED)
-        backGroundGray = cv2.cvtColor(background, cv2.COLOR_BGR2GRAY)
+    # if background is None:   # get the first frame , after gaussian blur, used as benchmark standard
+    #     background = cv2.imread('/media/newdiskp1/picMatch/trainingImages/1/pos-0.png', cv2.IMREAD_UNCHANGED)
+    #     backGroundGray = cv2.cvtColor(background, cv2.COLOR_BGR2GRAY)
 
     deltaArea = 200
     deltaRadius = 20
@@ -236,8 +236,6 @@ if __name__ == '__main__':
             backGroundGray = gray
             backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
             continue
-
-        backGroundGrayBlur = cv2.GaussianBlur(backGroundGray, (blurr_level, blurr_level), 0)
 
         if s == 0:
             displayWindow(windowName,img,30,0,screenResolution, True)
@@ -322,13 +320,16 @@ if __name__ == '__main__':
             # and previous frame after blur
             # cv2.imshow('training',backGroundGrayBlur)
             blurFrame = cv2.GaussianBlur(gray, (blurr_level,blurr_level), 0)
-            ret, thresh_img = cv2.threshold(blurFrame, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
-            ret, backgroundThresh_img = cv2.threshold(backGroundGrayBlur, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+            # do NOT use thresh image to compare, MUST compare blur image instead
+            # ret, thresh_img = cv2.threshold(blurFrame, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+            # ret, backgroundThresh_img = cv2.threshold(backGroundGrayBlur, thresh_level, 255, cv2.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
             # setup  the simulated interested box after camera is shifted in x and y direction
             boxCameraShift = box + [camera_shift_x, camera_shift_y]
-            imgWarpBlur = warpImg(thresh_img, boxCameraShift, wP, hP)
+            # imgWarpBlur = warpImg(thresh_img, boxCameraShift, wP, hP)
+            imgWarpBlur = warpImg(blurFrame, boxCameraShift, wP, hP)
             # training sample's camera box does NOT change
-            imgWarpBackgroundBlur = warpImg(backgroundThresh_img, box,wP,hP)
+            # imgWarpBackgroundBlur = warpImg(backgroundThresh_img, box,wP,hP)
+            imgWarpBackgroundBlur = warpImg(backGroundGrayBlur, box,wP,hP)
             # cv2.imshow('warptraining',imgWarpBackgroundBlur)
 
             # use interestedMask to fetch only interested area data
@@ -351,7 +352,7 @@ if __name__ == '__main__':
             # cnts = imutils.grab_contours(cnts)
 
             # set current frame as previous frame for next time
-            # backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
+            backGroundGrayBlur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
         else:
             # use contours in both images to compare, if contour areas, centers and radius are within delta ranges
             # then judge that they are same images.

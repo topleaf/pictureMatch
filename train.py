@@ -45,7 +45,7 @@ import cv2 as cv
 import numpy as np
 import time
 
-DELAY_IN_SECONDS = 1
+DELAY_IN_SECONDS = 0.3
 
 
 
@@ -122,7 +122,7 @@ class BuildDatabase(object):
         # set up a mask to select interested zone only for further compare
         self.interestedMask = np.zeros((self._warpImgHP, self._warpImgWP), np.uint8)
         self.interestedMask[self._S_MASKY:self._E_MASKY, self._S_MASKX:self._E_MASKX] = np.uint8(255)
-        self.expectedTrainingImageId = 1  #  expected training sample id to be compared with current image
+        self.expectedTrainingImageId = STATES_NUM  #  expected training sample id to be compared with current image
         self._onDisplayId = STATES_NUM
         self._expectedTrainingImg = None  # load expected svmmodel's first training image
         self._startTime = time.time()
@@ -193,9 +193,8 @@ class BuildDatabase(object):
                             if self._waitFrameCount < self._trainingFrameCount:
                                 # capture and save the next frame img to file
                                 # in current directory by the name of pos-1.png, ..., pos-100.png
-                                self.__testResults.append(
                                     self._captureManager.save(join(newFolder, self.positive + str(self._waitFrameCount) +
-                                                              '.' + self._imgFormat)))
+                                                              '.' + self._imgFormat))
                             self._waitFrameCount += 1
                             self._captureManager.exitFrame()
                             self._windowManager.processEvents()
@@ -234,6 +233,14 @@ class BuildDatabase(object):
             self._communicationManager.resetInputBuffer()
             self._communicationManager.resetOutputBuffer()
             for self._current in self._predefinedPatterns:
+                if not self._windowManager.isWindowCreated:  # user pressed ESC ,trying to quit program
+                    if self._captureManager.cameraIsOpened:
+                        self._captureManager.closeCamera()
+                    if self._communicationManager is not None:
+                        self._communicationManager.close()
+                    self.logger.info('user pressed ESC to quit.')
+                    break
+
                 if self._current == SKIP_STATE_ID:
                     self.logger.debug('skip capturing training sample of id = {}'.format(SKIP_STATE_ID))
                     continue
@@ -295,6 +302,9 @@ class BuildDatabase(object):
 
         if self._captureManager.cameraIsOpened:
             self._captureManager.closeCamera()
+        if self._communicationManager is not None:
+            self._communicationManager.close()
+        self.logger.info("test ends per user's request")
 
         # self._captureManager.openCamera()
         # while self._windowManager.isWindowCreated:
@@ -333,6 +343,11 @@ class BuildDatabase(object):
             self._captureManager.openCamera()
         while self._windowManager.isWindowCreated and self._readyToNext is False:
             self._captureManager.enterFrame()
+            # in response to all of those user key input commands which is set in self.onKeyPress method
+            # support user to  switch DUT images and check each training images with current live captured images
+            # this is useful for debugging.
+            self._captureManager.setCompareModel(self.expectedTrainingImageId, self.interestedMask,
+                                                 self._expectedTrainingImg, False)
             # report last result(Pass or fail), prompt user to switch LCD module
             prompt = 'change LCD module, when ready, press RETURN to continue'
             self._captureManager.setUserPrompt(self.__testResults, prompt)
@@ -370,9 +385,7 @@ class BuildDatabase(object):
                 if self.expectedTrainingImageId == SKIP_STATE_ID:
                     self.expectedTrainingImageId += 1
             try:
-                firstExpectedTrainingFileLocation = join(self._folderName,
-                                                         str(self.expectedTrainingImageId),
-                                                         self.positive +'0.' + self._imgFormat)
+                firstExpectedTrainingFileLocation = self._path(self.expectedTrainingImageId, self.positive, 0)
                 self._expectedTrainingImg = cv.imread(firstExpectedTrainingFileLocation)
             except Exception as e:
                 self.logger.error('training sample file {} deleted? {}'.
@@ -507,7 +520,7 @@ if __name__ == "__main__":
                              imgFormat=args.imageFormat,
                              skipCapture=args.skipCapture,
                              thresholdValue=args.threshold, blurLevel=args.blurValue,
-                             noiseLevel = args.cameraNoise,imageTheme=args.imageTheme,
+                             noiseLevel = args.cameraNoise, imageTheme=args.imageTheme,
                              structureSimilarityThreshold=args.ssThreshold,
                              offsetX=args.offsetX,
                              offsetY=args.offsetY,
@@ -521,7 +534,7 @@ if __name__ == "__main__":
     except ValueError as e:
         logger.error(e)
         pass
-    solution.reportTestResult()
+    # solution.reportTestResult()
 
 
 
