@@ -116,7 +116,7 @@ class WindowManager:
 class CaptureManager:
     def __init__(self, logger, deviceId, previewWindowManger = None,
                  snapWindowManager = None, promptWindowManager=None, shouldMirrorPreview=False, width=640, height=480,
-                 compareResultList = [],  warpImgSize = (600,600), threshValue=47,blurLevel=9,
+                 compareResultList = [],  warpImgSize = (600,600), threshOffset=30,blurLevel=9,
                  roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23,
                  offsetRangeX=5,offsetRangeY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         self.logger = logger
@@ -142,7 +142,8 @@ class CaptureManager:
         self._trainingImg = None       # expected training img, to be shown
         self.w = 0          # initial snapshot window left coordination
         self._showImageType = 0     # show original image without processing in live preview window
-        self._thresholdValue = threshValue  # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
+        self._thresholdOffset = threshOffset  # user defined threshold offset value to change image to binary,EXPECIALLY IMPORTANT
+        self._thresholdValue = 0  # automatically calculated threshold value to change image to binary
         self._blurLevel = blurLevel     # user defined threshold value to change image to binary,EXPECIALLY IMPORTANT
         self._detector = cv.xfeatures2d.SIFT_create()  #SIFT detector
         self._box = roiBox
@@ -243,8 +244,13 @@ class CaptureManager:
         if self._frame is not None:
             prevGray = cv.cvtColor(self._previousFrame, cv.COLOR_BGR2GRAY)
             gray = cv.cvtColor(self._frame, cv.COLOR_BGR2GRAY)
-            blurPrevFrame = cv.GaussianBlur(prevGray, (self._blurLevel, self._blurLevel), 0)
-            blurFrame = cv.GaussianBlur(gray, (self._blurLevel,self._blurLevel), 0)
+            if self._blurLevel != 0:
+                blurPrevFrame = cv.GaussianBlur(prevGray, (self._blurLevel, self._blurLevel), 0)
+                blurFrame = cv.GaussianBlur(gray, (self._blurLevel,self._blurLevel), 0)
+            else:
+                blurPrevFrame = prevGray
+                blurFrame = gray
+
             diff = cv.absdiff(blurFrame, blurPrevFrame)
 
             # project region of interest to new coordination for compare purpose only
@@ -644,6 +650,22 @@ class CaptureManager:
     #
     #     return compareResult
 
+    def _calcThreshValue(self, img, interestMask, offset ):
+        """
+        automatically selecting a threshold value to binarize the image
+        :param img: original img with  BGR 3 channels
+        :param interestMask:
+        :param offset:  int
+        :return:  new thresholdValue
+
+        """
+        # auto calculating appropriate threshold value for this frame
+        # use interestedMask to fetch only interested area data, set pixels outside interestedMask to 255
+        imgROI = np.where(interestMask == 0, 255, cv.cvtColor(img, cv.COLOR_BGR2GRAY))
+        thresholdValue = np.min(imgROI) + offset
+
+        return thresholdValue
+
     def _compare(self):
         """
         compare designated training image with current active frame using contours similarity
@@ -662,7 +684,10 @@ class CaptureManager:
         trainImg = self._trainingImg.copy()
 
         imgWarp = warpImg(snapShotImg, self._box,  self._warpImgSize[0], self._warpImgSize[1])
-        imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25,125,
+        # auto calculating appropriate threshold value for this frame
+        self._thresholdValue = self._calcThreshValue(imgWarp, self._interestedMask, self._thresholdOffset)
+
+        imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25, 125,
                                                    1, 1,
                                                    np.ones((3, 3)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
@@ -671,6 +696,8 @@ class CaptureManager:
 
 
         warpTrain = warpImg(trainImg, self._box, self._warpImgSize[0], self._warpImgSize[1])
+        # auto calculating appropriate threshold value for this training frame
+        self._thresholdValue = self._calcThreshValue(warpTrain, self._interestedMask, self._thresholdOffset)
         imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
                                                    1, 1,
                                                    np.ones((3, 3)), self._interestedMask,

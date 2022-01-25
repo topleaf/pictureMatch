@@ -124,7 +124,8 @@ if __name__ == '__main__':
             exit(-1)
         camera.set(3,cameraResW)
         camera.set(4,cameraResH)
-        camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, -1)
+        # camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.0)
+        # camera.set(cv2.CAP_PROP_EXPOSURE, -2)
         camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         # camera.set(cv2.CAP_PROP_HUE, 1.0)
         # camera.set(cv2.CAP_PROP_AUTO_WB, -1.0)
@@ -160,6 +161,7 @@ if __name__ == '__main__':
     tbDilateIter = 'dilate iteration'
     tbCannyLow = 'Canny low'
     tbCannyHigh = 'Canny high'
+    tbAutoThresh = 'Auto Detected Threshold Value'
 
     cv2.createTrackbar(tbCameraShiftX, windowName, 0, 50, func)
     cv2.createTrackbar(tbCameraShiftY, windowName, 0, 50, func)
@@ -177,8 +179,10 @@ if __name__ == '__main__':
     tbMaxArea = 'maxArea'
     cv2.createTrackbar(tbMinArea, windowName, 20, 50000, func)
     cv2.createTrackbar(tbMaxArea, windowName, 20, 300000, func)
+    cv2.createTrackbar(tbAutoThresh, windowName , 0, 255, func)
 
-    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: Erode first\n 4: dilate first\n ' \
+
+    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: auto thresh\n 4: dilate first\n ' \
              '5:diff\n6:erode\n 7: SSIM warpImg diff \n 8:Contour\n'
     cv2.createTrackbar(switch, windowName, 0, 8, func)
     cv2.setTrackbarPos(switch, windowName, 2)
@@ -255,23 +259,31 @@ if __name__ == '__main__':
             # ret, thresh_img = cv2.threshold(gray, thresh_level,255, cv2.THRESH_BINARY_INV)
             # blur = cv2.blur(thresh_img,(blurr_level,blurr_level))
 
-        # elif s == 3:  canny
-        #     # blur = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-        #     blur = cv2.blur(gray,(blurr_level,blurr_level))
-        #     # retval, thresh = cv2.threshold(blur, erodeIter, 255, cv2.THRESH_BINARY)#|cv2.THRESH_OTSU)
-        #     imgCanny = cv2.Canny(blur, erodeIter, dilateIter)
-        #     displayWindow(windowName,imgCanny,30,0,screenResolution, True)
-        #     # cv2.imshow (windowName, imgCanny)
-        elif s == 3:
-            blur = cv2.GaussianBlur(gray,(blurr_level,blurr_level), 0)
-            cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
-                        cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
-            print('blurr_level={}'.format(blurr_level))
-
-            ret, thresh_img = cv2.threshold(blur, thresh_level,255, cv2.THRESH_BINARY_INV)
-            imgErode = cv2.erode(thresh_img, kernel=kernel, iterations=erodeIter)
-            imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=dilateIter)
-            displayWindow(windowName, imgDilate,0,0,screenResolution, True)
+        elif s == 3:  # auto select threshold value according to current live image within ROI box
+            blurFrame = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0 )
+            # blurFrame = cv2.blur(gray, (blurr_level,blurr_level))
+            # setup  the simulated interested box after camera is shifted in x and y direction
+            boxCameraShift = box + [camera_shift_x, camera_shift_y]
+            imgWarpBlur = warpImg(blurFrame, boxCameraShift, wP, hP)
+            # use interestedMask to fetch only interested area data
+            imgWarpBlurROI = np.where(interestedMask == 0, 255, imgWarpBlur)
+            autoThresholdValue = np.min(imgWarpBlurROI) + 30
+            cv2.setTrackbarPos(tbAutoThresh, windowName, autoThresholdValue)
+            ret, thresh_img = cv2.threshold(blurFrame, autoThresholdValue, 255, cv2.THRESH_BINARY_INV)
+            # retval, thresh = cv2.threshold(blur, erodeIter, 255, cv2.THRESH_BINARY)#|cv2.THRESH_OTSU)
+            # imgCanny = cv2.Canny(blur, erodeIter, dilateIter)
+            displayWindow(windowName,thresh_img,0,0,screenResolution, True)
+            # cv2.imshow (windowName, imgCanny)
+        # elif s == 3:
+        #     blur = cv2.GaussianBlur(gray,(blurr_level,blurr_level), 0)
+        #     cv2.putText(blur, 'level={}'.format(blurr_level), (10,30),
+        #                 cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)
+        #     print('blurr_level={}'.format(blurr_level))
+        #
+        #     ret, thresh_img = cv2.threshold(blur, thresh_level,255, cv2.THRESH_BINARY_INV)
+        #     imgErode = cv2.erode(thresh_img, kernel=kernel, iterations=erodeIter)
+        #     imgDilate = cv2.dilate(imgErode, kernel=kernel, iterations=dilateIter)
+        #     displayWindow(windowName, imgDilate,0,0,screenResolution, True)
         elif s == 4:
             blur = cv2.GaussianBlur(gray, (blurr_level,blurr_level),0)
             ret, thresh_img = cv2.threshold(blur, thresh_level,255, cv2.THRESH_BINARY_INV)
