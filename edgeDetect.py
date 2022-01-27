@@ -157,7 +157,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 # find contours that  are closed graph with minArea,cornerNumber
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,interestMask,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
-                        draw=1, returnErodeImage =True,threshLevel=20):
+                        draw=1, returnErodeImage =True):
     """
 
     :param img: original image
@@ -169,13 +169,24 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     :param maxArea:  contour has smaller area than this maximum area
     :param cornerNumber:  contour has corners number that are larger than this
     :param draw:  draw a rectangle and a circle around detected contour  in what color [1,2]
+    :param returnErodeImage: True or false, obsolete
     :return: thresh  img , list of satisfactory contours_related info
             (area, center, radius, approx, boundingbox ), original image
     """
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), 1)
-    ret, thresh_img = cv.threshold(blur, threshLevel, 255, cv.THRESH_BINARY_INV) #cv.THRESH_TOZERO)
+    blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), sigmaX=1,sigmaY=1)
 
+    # use interestedMask to fetch only interested area data
+    if interestMask.shape == blur.shape:
+        blur = np.where(interestMask == 0, 0, blur)
+    # ret, thresh_img = cv.threshold(blur, threshLevel, 255, cv.THRESH_BINARY_INV) #cv.THRESH_TOZERO)
+    #  use adaptiveThreshold instead, which is tolerable of camera noise. some frames captured by camera changes
+    # in R,G,B very frequently
+    # https://www.pyimagesearch.com/2021/05/12/adaptive-thresholding-with-opencv-cv2-adaptivethreshold/
+
+    # blockSize, C are empirical values for my application
+    thresh_img = cv.adaptiveThreshold(blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV,
+                                      blockSize=21, C=10, dst=None)
     # use interestedMask to fetch only interested area data
     if interestMask.shape == thresh_img.shape:
         thresh_img = np.where(interestMask == 0, 0, thresh_img)

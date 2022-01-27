@@ -45,7 +45,7 @@ import cv2 as cv
 import numpy as np
 import time
 
-DELAY_IN_SECONDS = 0.3
+DELAY_IN_SECONDS = 0.01
 
 
 
@@ -60,7 +60,7 @@ class BuildDatabase(object):
     def __init__(self,logger,windowName,captureDeviceId,predefinedPatterns,portId,
                  duration, videoWidth, videoHeight, wP, hP, folderName,
                  imgFormat,skipCapture=True,
-                 threshOffset=47, blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23,
+                 blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23,
                  offsetX=5,offsetY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         """
 
@@ -70,7 +70,7 @@ class BuildDatabase(object):
         :param portId: serial port id: int
         """
         #define roi mask coordinations in WarpImage
-        self._S_MASKX, self._E_MASKX, self._S_MASKY, self._E_MASKY = 15, wP-15, 5, hP-5
+        self._S_MASKX, self._E_MASKX, self._S_MASKY, self._E_MASKY = 10, wP-10, 1, hP-1
         self.logger = logger
         self._compareResultList = []
         self._roi_box = [(SX, SY), (LB_X, LB_Y), (EX, EY), (RU_X, RU_Y)]
@@ -87,7 +87,6 @@ class BuildDatabase(object):
                                               False, videoWidth, videoHeight,
                                               self._compareResultList,
                                               warpImgSize=(wP, hP),
-                                              threshOffset=threshOffset,
                                               blurLevel=blurLevel,
                                               roiBox=self.box,
                                               cameraNoise=noiseLevel,
@@ -479,9 +478,6 @@ if __name__ == "__main__":
                         default='png', type=str)
     parser.add_argument("--skipCapture", dest='skipCapture', help='do not overwrite existing image files [0,1]',
                         default=True, type=int)
-    parser.add_argument("--thresholdOffset", dest='thresholdOffset', help='threshold offset value[0,255]'
-                                                                          ' to binarize image,CRITICAL!!!',
-                        type=int)
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8,
                         type=int)
@@ -498,11 +494,11 @@ if __name__ == "__main__":
     parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2000',
                         default=2000, type=int)
     parser.add_argument("--deltaCenterX", dest='deltaCenterX',
-                        help='maximum center coordination difference in X [0,255],default=20', default=20, type=int)
+                        help='maximum center coordination difference in X [0,255],default=30', default=30, type=int)
     parser.add_argument("--deltaCenterY", dest='deltaCenterY',
-                        help='maximum center coordination difference in Y [0,255],default=20', default=20, type=int)
+                        help='maximum center coordination difference in Y [0,255],default=30', default=30, type=int)
     parser.add_argument("--deltaRadius", dest='deltaRadius',
-                        help='maximum radius difference in pixel [0,255],default=20', default=20, type=int)
+                        help='maximum radius difference in pixel [0,255],default=30', default=30, type=int)
     args = parser.parse_args()
     logger = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
@@ -511,18 +507,18 @@ if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logHandler)
     logger.info(args)
-    if args.thresholdOffset is None:
-        logger.info('please specify a mandatory CRITICAL training parameter thresholdOffset '
-                    'using --thresholdOffset t, range is [0,255],\n'
-                    'The larger the value, more symbol part on LCD display will show up, '
-                    'threshTuneTrackbar utility can be used to search for it!')
-        exit(-1)
+    # if args.thresholdOffset is None:
+    #     logger.info('please specify a mandatory CRITICAL training parameter thresholdOffset '
+    #                 'using --thresholdOffset t, range is [0,255],\n'
+    #                 'The larger the value, more symbol part on LCD display will show up, '
+    #                 'threshTuneTrackbar utility can be used to search for it!')
+    #     exit(-1)
     solution = BuildDatabase(logger, "live capture window", args.deviceId,
                              range(1, STATES_NUM+1, 1), args.portId, args.duration,
                              args.width, args.height, args.imgWidth,args.imgHeight, args.folder,
                              imgFormat=args.imageFormat,
                              skipCapture=args.skipCapture,
-                             threshOffset=args.thresholdOffset, blurLevel=args.blurValue,
+                             blurLevel=args.blurValue,
                              noiseLevel = args.cameraNoise, imageTheme=args.imageTheme,
                              structureSimilarityThreshold=args.ssThreshold,
                              offsetX=args.offsetX,
