@@ -692,7 +692,7 @@ class CaptureManager:
 
         imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((3, 3)), self._interestedMask,
+                                                   np.ones((13, 13)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)
@@ -703,7 +703,7 @@ class CaptureManager:
         # self._thresholdValue = self._calcThreshValue(warpTrain, self._interestedMask, self._blurLevel, self._thresholdOffset)
         imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((3, 3)), self._interestedMask,
+                                                   np.ones((13, 13)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)

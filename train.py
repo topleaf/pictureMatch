@@ -50,9 +50,9 @@ DELAY_IN_SECONDS = 0.01
 
 
 # define the absolute coordinations of the lcd screen in the image captured by camera, in pixel
-SX, SY = 713, 237       # left top corner
+SX, SY = 713, 229       # left top corner
 EX, EY = 1292, 872      # right bottom corner
-RU_X, RU_Y = 1292, 237  # right top corner
+RU_X, RU_Y = 1292, 229  # right top corner
 LB_X, LB_Y = 718, 872   # left bottom corner
 #
 
@@ -359,7 +359,7 @@ class BuildDatabase(object):
         key handler to communicate with window
         :param keyCode:
         :return:
-        """
+        """ 
         if keyCode == ord('q') or keyCode == 27:
             self._windowManager.destroyWindow()
             self._snapshotWindowManager.destroyWindow()
@@ -491,10 +491,10 @@ if __name__ == "__main__":
     parser.add_argument("--cameraOffsetY", dest='offsetY',
                         help='allowable camera shift in pixel in Y direction away from training position[0,255]\n '
                              'default=3', default=3, type=int)
-    parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2000',
-                        default=2000, type=int)
+    parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2100',
+                        default=2100, type=int)
     parser.add_argument("--deltaCenterX", dest='deltaCenterX',
-                        help='maximum center coordination difference in X [0,255],default=30', default=30, type=int)
+                        help='maximum center coordination difference in X [0,255],default=10', default=10, type=int)
     parser.add_argument("--deltaCenterY", dest='deltaCenterY',
                         help='maximum center coordination difference in Y [0,255],default=30', default=30, type=int)
     parser.add_argument("--deltaRadius", dest='deltaRadius',

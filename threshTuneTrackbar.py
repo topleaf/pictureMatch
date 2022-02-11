@@ -137,7 +137,7 @@ if __name__ == '__main__':
             print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
         print('\n')
     else:
-        originalFileName = "./pictures/6.png"
+        originalFileName = "/media/newdiskp1/picMatch/trainingImages/21/pos-0.png"
         img = cv2.imread(originalFileName)
 
     windowName = 'looking for main Contour image'
@@ -198,7 +198,7 @@ if __name__ == '__main__':
     cv2.setTrackbarPos(tbDilateIter, windowName, 1)
     cv2.setTrackbarPos(tbCannyLow, windowName, 10)
     cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
-    kernel = np.ones((3, 3))
+    kernel = np.ones((2, 2))
     background = None
     backGroundGray = None
     # if background is None:   # get the first frame , after gaussian blur, used as benchmark standard
@@ -317,7 +317,7 @@ if __name__ == '__main__':
                                                     kernel, interestedMask,
                                                     minArea=minArea, maxArea=maxArea,
                                                     cornerNumber=4, draw=drawRect,
-                                                    returnErodeImage=True,threshLevel=thresh_level)
+                                                    returnErodeImage=True)
             displayWindow(windowName,erodeImage,0,0,screenResolution, True)
             # cv2.imshow(windowName, erodeImage)
             # if len(conts) != 0:
@@ -380,7 +380,7 @@ if __name__ == '__main__':
                                                       kernel,interestedMask,
                                                       minArea=minArea, maxArea=maxArea,
                                                       cornerNumber=4, draw=drawRect,
-                                                      returnErodeImage=False, threshLevel=thresh_level)
+                                                      returnErodeImage=False)
 
             # training sample's camera box does NOT change
             imgWarpBackground = warpImg(background.copy(), box, wP, hP)
@@ -389,11 +389,11 @@ if __name__ == '__main__':
                                                     kernel,interestedMask,
                                                     minArea=minArea, maxArea=maxArea,
                                                     cornerNumber=4, draw=drawRect,
-                                                    returnErodeImage=False, threshLevel=thresh_level)
+                                                    returnErodeImage=False)
             if drawRect:
                 cv2.rectangle(contours_img,box[0],box[2],(0,255,0),2)
             displayWindow(windowName, contours_img, 0, 0,screenResolution, True)
-            cv2.imshow('warped lcd screen img', imgWarp)
+            cv2.imshow('warped lcd screen img', img1)
             cv2.imshow('warped training sample img', imgWarpBackground)
             # cv2.imshow(windowName, contours_img)
             matched = True

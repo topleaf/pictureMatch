@@ -155,6 +155,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 
 
 # find contours that  are closed graph with minArea,cornerNumber
+# this function plays extremely  important role.!!! be careful of input parameters
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,interestMask,
                         minArea=4000, maxArea = 50000,cornerNumber=4,
                         draw=1, returnErodeImage =True):
@@ -164,7 +165,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     :param blurr_level: kernel size for GaussianBlur
     :param threshold_1: canny threshold 1
     :param threshold_2: canny threshold 2
-    :param kernel:  dilate and erode kernel
+    :param kernel:   erode and dilate kernel, the larger the value, the more effect to remove noise
     :param minArea:  contour has larger area than this minimum area
     :param maxArea:  contour has smaller area than this maximum area
     :param cornerNumber:  contour has corners number that are larger than this
@@ -180,23 +181,33 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     if interestMask.shape == blur.shape:
         blur = np.where(interestMask == 0, 0, blur)
     # ret, thresh_img = cv.threshold(blur, threshLevel, 255, cv.THRESH_BINARY_INV) #cv.THRESH_TOZERO)
-    #  use adaptiveThreshold instead, which is tolerable of camera noise. some frames captured by camera changes
+    #  CRITICAL: use adaptiveThreshold instead, which is tolerable of camera noise. some frames captured by camera changes
     # in R,G,B very frequently
     # https://www.pyimagesearch.com/2021/05/12/adaptive-thresholding-with-opencv-cv2-adaptivethreshold/
-
     # blockSize, C are empirical values for my application
-    thresh_img = cv.adaptiveThreshold(blur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV,
+    # use cv.ADAPTIVE_THRESH_MEAN_C instead of cv.ADAPTIVE_THRESH_GAUSSIAN_C, the latter will degrade quality
+    # of those shape that locate close to the edge of the image
+    thresh_img = cv.adaptiveThreshold(blur, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY_INV,
                                       blockSize=21, C=10, dst=None)
     # use interestedMask to fetch only interested area data
     if interestMask.shape == thresh_img.shape:
         thresh_img = np.where(interestMask == 0, 0, thresh_img)
 
-    # blur = cv.blur(gray,(blurr_level,blurr_level))
-    imgCanny = cv.Canny(blur, threshold_1,threshold_2)
+    # apply close operation to thresh_img
+    # 先膨胀再腐蚀。被用来填充前景物体中的小洞，或者前景物体上面的小黑点。使得前景变成更加连续的实体
+    # IMPORTANT:
+    # this operation can improve consistency of recognition algorithm,
+    # because 1. it helps to connect closely-adjacent shapes to one shape, so it reduces contours number
+    # 2, in later steps of  _compare, area calculation workload is reduced
+    # the larger the kernel size, adjacent shapes will be more likely to form into one shape
+    closed = cv.morphologyEx(thresh_img, cv.MORPH_CLOSE, kernel)
+
+    # the next 3 lines are redundant, legacy code, no use so far
+    imgCanny = cv.Canny(blur, threshold_1, threshold_2)
     imgDilate = cv.dilate(imgCanny, kernel=kernel, iterations=dilateIter)
     imgErode = cv.erode(imgDilate, kernel, iterations=erodeIter)
 
-    contours, hierarchy = cv.findContours(thresh_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv.findContours(closed, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     if hierarchy is not None:
         # print('hierarchy shape is {}'.format(hierarchy.shape))
@@ -239,8 +250,8 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
                 cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
                 cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
                 if not returnErodeImage:   # return thresh_img
-                    cv.drawContours(thresh_img, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
-                    cv.circle(thresh_img, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
+                    cv.drawContours(closed, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
+                    cv.circle(closed, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
 
 
             finalContours.append((area, center, radius, approx, box))
@@ -254,7 +265,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     if returnErodeImage:
         return imgErode, finalContours, img
     else:
-        return thresh_img, finalContours, img
+        return closed, finalContours, img
 
 
 def warpImg(img, points, w, h):
