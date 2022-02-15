@@ -481,7 +481,7 @@ if __name__ == "__main__":
     parser.add_argument("--blurValue", dest='blurValue', help='user defined blur level[1,255]', default=9, type=int)
     parser.add_argument("--cameraNoise", dest='cameraNoise', help='user defined camera noise level [0,255]', default=8,
                         type=int)
-    parser.add_argument("--imageTheme", dest='imageTheme', help='user defined training images theme [0,3]', default=1,
+    parser.add_argument("--imageTheme", dest='imageTheme', help='user defined training images theme [0,4]', default=4,
                         type=int)
     parser.add_argument("--ssThreshold", dest='ssThreshold',
                         help='user defined structure similarity threshold[0,255]\n default=23', default=23, type=int)
@@ -494,9 +494,9 @@ if __name__ == "__main__":
     parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2100',
                         default=2100, type=int)
     parser.add_argument("--deltaCenterX", dest='deltaCenterX',
-                        help='maximum center coordination difference in X [0,255],default=10', default=10, type=int)
+                        help='maximum center coordination difference in X [0,255],default=21', default=21, type=int)
     parser.add_argument("--deltaCenterY", dest='deltaCenterY',
-                        help='maximum center coordination difference in Y [0,255],default=30', default=30, type=int)
+                        help='maximum center coordination difference in Y [0,255],default=10', default=10, type=int)
     parser.add_argument("--deltaRadius", dest='deltaRadius',
                         help='maximum radius difference in pixel [0,255],default=30', default=30, type=int)
     args = parser.parse_args()

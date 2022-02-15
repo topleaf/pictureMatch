@@ -7,7 +7,7 @@ from filters import SharpenFilter
 from edgeDetect import warpImg, getRequiredContours
 from skimage.metrics import structural_similarity as compare_ssim
 SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
-STATES_NUM = 52
+STATES_NUM = 17         # total number of different picture types
 
 
 class WindowManager:
@@ -692,7 +692,7 @@ class CaptureManager:
 
         imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((13, 13)), self._interestedMask,
+                                                   np.ones((15, 15)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)
@@ -703,7 +703,7 @@ class CaptureManager:
         # self._thresholdValue = self._calcThreshValue(warpTrain, self._interestedMask, self._blurLevel, self._thresholdOffset)
         imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((13, 13)), self._interestedMask,
+                                                   np.ones((15, 15)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)
@@ -738,9 +738,17 @@ class CaptureManager:
                     diffRadius = abs(radius-radiusT)
                     self.logger.debug('diffArea={},diffCenter=({},{}),radius={}'.format(diffArea, diffCenterX,
                                                                                    diffCenterY, diffRadius))
-                    if diffArea > self._deltaArea or diffRadius > self._deltaRadius \
+                    self.logger.debug('i={},area=({}<->{}),Center=(({},{})<->({},{})),radius={}<->{}'
+                                        .format(i, area, areaT, center[0], center[1], centerT[0], centerT[1],
+                                                radius,radiusT))
+                    # compare Radius and center of the minEnclosingCirle of live with training image
+                    # do NOT use area , because area calculation might be incorrect .
+                    if diffRadius > self._deltaRadius \
                             or diffCenterX > self._deltaCenterX or diffCenterY > self._deltaCenterY:
                         compareResult['matched'] = False
+                        self.logger.warning('i={},area=({}<->{}),Center=(({},{})<->({},{})),radius={}<->{}'
+                                            .format(i, area, areaT, center[0], center[1], centerT[0], centerT[1],
+                                                                                             radius,radiusT))
                         break
                 if compareResult['matched']:
                     cv.putText(self._frame, 'match sample {},diff={},({},{}),{}'
@@ -888,10 +896,12 @@ class CommunicationManager:
         self._commandPrefix = b'\x53\x50\x00\x0d'
         # self._commandBody = b'\x00\x00'
         self._expectedReponseLen = 18
-        self._commands=[]
-        self._algorithm=algorithm
+        self._commands = []
+        self._algorithm = algorithm
         if self._algorithm == 3:
             self.buildAlgorithm3CommandList()
+        elif self._algorithm == 4:      # construct 17 different types of lcd display
+            self.buildAlgorithm4CommandList()
 
 
     def _commandMapping(self, picId):
@@ -913,7 +923,7 @@ class CommunicationManager:
                 controlBytes.insert(0, lastFourBits)
             for i in range(len(controlBytes)):
                 command += controlBytes[i].to_bytes(1, 'big')
-        elif self._algorithm==2:
+        elif self._algorithm == 2:
             divider, moder = divmod(picId, 4)
             # newContent = (lambda x: 0x01 << x-1 if x > 0 else 0)(moder)  # 0: 00, 1: 01, 2:02, 3:04, 4:08
             moder = (lambda x: 4 if x == 0 else x)(moder)
@@ -940,6 +950,47 @@ class CommunicationManager:
                     for c in xcommand:
                         command += c
                     self._commands.append(command)
+
+    def buildAlgorithm4CommandList(self):
+        """
+        construct 17 commands instead of 52 to cover all variations of lcd display
+        :return:
+        """
+
+        # COM1 enabled, 13 types light up one by one
+        for i in range(13):
+            command = self._commandPrefix
+            for j in range(13):
+                if i != j:
+                    command = command + b'\x00'
+                else:
+                    command = command + b'\x01'
+            self._commands.append(command)
+
+        # COM2 Pin1 to Pin 13 light up all at once
+        command = self._commandPrefix
+        for i in range(13):
+            command += b'\x02'
+        self._commands.append(command)
+
+        # COM3 pin1 to pin 13 light up all at once
+        command = self._commandPrefix
+        for i in range(13):
+            command += b'\x04'
+        self._commands.append(command)
+
+        # COM4 pin1 to pin 13 light up all at once
+        command = self._commandPrefix
+        for i in range(13):
+            command += b'\x08'
+        self._commands.append(command)
+
+        # all pins light up at once
+        command = self._commandPrefix
+        for i in range(13):
+            command += b'\xff'
+        self._commands.append(command)
+
 
 
     def send(self, picId):

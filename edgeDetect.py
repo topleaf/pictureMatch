@@ -261,7 +261,11 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     #     cv.drawContours(thresh_img, maskContours, -1, color=(255,255,255),thickness=2)
 
     # sort the list by contour's area, so that the larger contours are in the first
-    finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
+    # finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
+
+    # sort the list by contour's center position coordinations(x,y), so that the larger center (x,y) contours
+    # are put in the first
+    finalContours = sorted(finalContours, key=lambda x: x[1][0]+x[1][1], reverse=True)
     if returnErodeImage:
         return imgErode, finalContours, img
     else:
