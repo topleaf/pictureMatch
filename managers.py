@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import subprocess
 from filters import SharpenFilter
-from edgeDetect import warpImg, getRequiredContours
+from edgeDetect import warpImg, getRequiredContours, euclideanDist
 from skimage.metrics import structural_similarity as compare_ssim
 SKIP_STATE_ID = 24      # skip id=24,  because its image is the same as 24
 STATES_NUM = 17         # total number of different picture types
@@ -118,7 +118,7 @@ class CaptureManager:
                  snapWindowManager = None, promptWindowManager=None, shouldMirrorPreview=False, width=640, height=480,
                  compareResultList = [],  warpImgSize = (600,600), blurLevel=9,
                  roiBox = [(0,0),(0,480),(640,0),(640,480)],cameraNoise=6,structureSimilarityThreshold=23,
-                 offsetRangeX=5,offsetRangeY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
+                 offsetRangeX=5,offsetRangeY=5,deltaPeri=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         self.logger = logger
         self._capture = None
         self._deviceId = deviceId
@@ -155,7 +155,7 @@ class CaptureManager:
         self.offsetX = offsetRangeX   # range in x direction of allowing camera shift
         self.offsetY = offsetRangeY
 
-        self._deltaArea = deltaArea     # maximum tolerance in contours area difference between live image and training sample image
+        self._deltaPeri = deltaPeri     # maximum tolerance in contours area difference between live image and training sample image
         self._deltaCenterX = deltaCenterX  # maximum tolerance in contours center coordination difference
         self._deltaCenterY = deltaCenterY
         self._deltaRadius = deltaRadius    # maximum tolerance in contours' minEnclosingCircle radius difference
@@ -692,7 +692,7 @@ class CaptureManager:
 
         imgThresh, conts, imgWarp = getRequiredContours(imgWarp, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((15, 15)), self._interestedMask,
+                                                   np.ones((10, 10)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)
@@ -703,7 +703,7 @@ class CaptureManager:
         # self._thresholdValue = self._calcThreshValue(warpTrain, self._interestedMask, self._blurLevel, self._thresholdOffset)
         imgTrainThresh, contsTrain, warpTrain = getRequiredContours(warpTrain, self._blurLevel, 25, 125,
                                                    1, 1,
-                                                   np.ones((15, 15)), self._interestedMask,
+                                                   np.ones((10, 10)), self._interestedMask,
                                                    minArea=100, maxArea=50000,
                                                    cornerNumber=4, draw=self._showImageType,
                                                    returnErodeImage=False)
@@ -725,41 +725,54 @@ class CaptureManager:
                            .format(self._expectedTrainingImageId,len(conts),len(contsTrain)), (10, self._frame.shape[0]-30),
                            cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
             else:
-                diffArea,diffCenterX,diffCenterY,diffRadius = 0,0,0,0
+                diffPeri,diffCenterX,diffCenterY,diffRadius = 0,0,0,0
+
+                #  check both images' all contours, compare 2 contours which have nearest center coordinations
+                #  each contours' area, minEnclosingCircle's center and radius must be within range
+                # before we give a matched verdict
                 for i in range(lenConts):
-                    #  check both images' all contours,
-                    #  each contours' area, minEnclosingCircle's center and radius must be within range
-                    # before we give a matched verdict
-                    area, center, radius = conts[i][0],conts[i][1],conts[i][2]
-                    areaT, centerT, radiusT = contsTrain[i][0],contsTrain[i][1], contsTrain[i][2]
-                    diffArea = abs(area-areaT)
+                    minIndex = 0
+                    minEuclideanDist = euclideanDist(conts[i][1], contsTrain[minIndex][1])
+                    for j in range(lenConts):
+                        eucDist = euclideanDist(conts[i][1], contsTrain[j][1])
+                        if eucDist < minEuclideanDist:
+                            minIndex = j
+                            minEuclideanDist = eucDist
+                    # so far we have the array index of minimum eucDist in contsTrain agaist conts[i]
+                    # compare their delta in term of area, x,y and r
+                    self.logger.debug('conts[{}] minEuclideanDist={},minIndexAtContsTrain={}'.format(i, minEuclideanDist, minIndex))
+                    peri, center, radius = conts[i][0], conts[i][1], conts[i][2]
+                    periT, centerT, radiusT = contsTrain[minIndex][0], contsTrain[minIndex][1], contsTrain[minIndex][2]
+                    diffPeri = abs(periT-peri)
                     diffCenterX = abs(center[0]-centerT[0])
                     diffCenterY = abs(center[1]-centerT[1])
                     diffRadius = abs(radius-radiusT)
-                    self.logger.debug('diffArea={},diffCenter=({},{}),radius={}'.format(diffArea, diffCenterX,
-                                                                                   diffCenterY, diffRadius))
-                    self.logger.debug('i={},area=({}<->{}),Center=(({},{})<->({},{})),radius={}<->{}'
-                                        .format(i, area, areaT, center[0], center[1], centerT[0], centerT[1],
-                                                radius,radiusT))
+                    self.logger.debug('diffCenter=({},{}),radius={},diffPeri={}'.format(diffCenterX, diffCenterY,
+                                                                                        diffRadius,diffPeri))
+                    self.logger.debug('i={},Center=(({},{})<->({},{})),radius={}<->{},peri={}<->{}'
+                                        .format(i, center[0], center[1], centerT[0], centerT[1],
+                                                radius, radiusT, peri, periT))
                     # compare Radius and center of the minEnclosingCirle of live with training image
-                    # do NOT use area , because area calculation might be incorrect .
-                    if diffRadius > self._deltaRadius \
+                    # we have to  use peri to detect abnormal display in OF symbol from 0E, although peri calculation
+                    # might be incorrect , to be debug
+                    if diffRadius > self._deltaRadius or diffPeri > self._deltaPeri\
                             or diffCenterX > self._deltaCenterX or diffCenterY > self._deltaCenterY:
                         compareResult['matched'] = False
-                        self.logger.warning('i={},area=({}<->{}),Center=(({},{})<->({},{})),radius={}<->{}'
-                                            .format(i, area, areaT, center[0], center[1], centerT[0], centerT[1],
-                                                                                             radius,radiusT))
+                        self.logger.warning('i={},Center=(({},{})<->({},{})),radius={}<->{},peri={}<->{}'
+                                            .format(i, center[0], center[1], centerT[0], centerT[1],
+                                            radius, radiusT, peri, periT))
                         break
                 if compareResult['matched']:
                     cv.putText(self._frame, 'match sample {},diff={},({},{}),{}'
-                               .format(self._expectedTrainingImageId, diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               .format(self._expectedTrainingImageId, diffPeri,diffCenterX,diffCenterY,diffRadius),
+                               (10, self._frame.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 255, 0), thickness=6)
                     self.logger.info('live image matched with training sample {}'.format(self._expectedTrainingImageId))
                 else:
                     cv.putText(self._frame, 'NOT match sample {},diff={},({},{}),{}'
-                               .format(self._expectedTrainingImageId,diffArea,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
+                               .format(self._expectedTrainingImageId,diffPeri,diffCenterX,diffCenterY,diffRadius), (10, self._frame.shape[0]-30),
                                cv.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), thickness=6)
-                    self.logger.info('live image NOT matched with training sample {}'.
+                    self.logger.info('live image NOT matches training sample {}'.
                                      format(self._expectedTrainingImageId))
             compareResult['predictedClassId'] = self._expectedTrainingImageId
         else:

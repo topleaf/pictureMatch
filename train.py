@@ -61,7 +61,7 @@ class BuildDatabase(object):
                  duration, videoWidth, videoHeight, wP, hP, folderName,
                  imgFormat,skipCapture=True,
                  blurLevel=9,noiseLevel=8,imageTheme=3,structureSimilarityThreshold=23,
-                 offsetX=5,offsetY=5,deltaArea=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
+                 offsetX=5,offsetY=5,deltaPeri=40,deltaCenterX=20,deltaCenterY=20,deltaRadius=10):
         """
 
         :param windowName: the title of window to show captured picture,str
@@ -93,7 +93,7 @@ class BuildDatabase(object):
                                               structureSimilarityThreshold=structureSimilarityThreshold,
                                               offsetRangeX=offsetX,
                                               offsetRangeY=offsetY,
-                                              deltaArea=deltaArea, deltaCenterX=deltaCenterX,
+                                              deltaPeri=deltaPeri, deltaCenterX=deltaCenterX,
                                               deltaCenterY=deltaCenterY, deltaRadius=deltaRadius
                                               )
         self._predefinedPatterns = predefinedPatterns
@@ -491,8 +491,8 @@ if __name__ == "__main__":
     parser.add_argument("--cameraOffsetY", dest='offsetY',
                         help='allowable camera shift in pixel in Y direction away from training position[0,255]\n '
                              'default=3', default=3, type=int)
-    parser.add_argument("--deltaArea", dest='deltaArea', help=' maximum area difference [0,50000],default=2100',
-                        default=2100, type=int)
+    parser.add_argument("--deltaPeri", dest='deltaPeri', help=' maximum perimeter difference [30,100],default=75',
+                        default=75, type=int)
     parser.add_argument("--deltaCenterX", dest='deltaCenterX',
                         help='maximum center coordination difference in X [0,255],default=21', default=21, type=int)
     parser.add_argument("--deltaCenterY", dest='deltaCenterY',
@@ -504,7 +504,7 @@ if __name__ == "__main__":
     formatter = logging.Formatter('%(asctime)s: %(levelname)s %(message)s')
     logHandler = logging.StreamHandler()
     logHandler.setFormatter(formatter)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     logger.addHandler(logHandler)
     logger.info(args)
     # if args.thresholdOffset is None:
@@ -523,7 +523,7 @@ if __name__ == "__main__":
                              structureSimilarityThreshold=args.ssThreshold,
                              offsetX=args.offsetX,
                              offsetY=args.offsetY,
-                             deltaArea=args.deltaArea,
+                             deltaPeri=args.deltaPeri,
                              deltaCenterX=args.deltaCenterX,
                              deltaCenterY=args.deltaCenterY,
                              deltaRadius=args.deltaRadius)

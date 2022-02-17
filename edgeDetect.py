@@ -7,7 +7,18 @@ import cv2 as cv
 import numpy as np
 from cv2 import xfeatures2d
 from os import walk
+import math
 
+
+def euclideanDist(vector1, vector2):
+    """
+
+    :param vector1: tuple(x,y) of vector
+    :param vector2:
+    :return:  their euclidean distance
+    """
+
+    return abs(math.sqrt((vector2[0]-vector1[0])**2 + (vector2[1]-vector1[1])**2))
 
 
 #from filters import SharpenFilter,Embolden5Filter, Embolden3Filter
@@ -172,7 +183,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     :param draw:  draw a rectangle and a circle around detected contour  in what color [1,2]
     :param returnErodeImage: True or false, obsolete
     :return: thresh  img , list of satisfactory contours_related info
-            (area, center, radius, approx, boundingbox ), original image
+            (integer of its perimeter, center, radius, approx, boundingbox ), original image
     """
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), sigmaX=1,sigmaY=1)
@@ -217,7 +228,6 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
         area = cv.contourArea(c)
         peri = cv.arcLength(c, True)
         approx = cv.approxPolyDP(c, 0.01*peri, True)
-
         # reorder approximate points array in the  order of
         # 1(topleft),2(topright),3(bottomleft),4(bottomright)
 
@@ -252,9 +262,7 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
                 if not returnErodeImage:   # return thresh_img
                     cv.drawContours(closed, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
                     cv.circle(closed, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
-
-
-            finalContours.append((area, center, radius, approx, box))
+            finalContours.append((int(peri), center, radius, approx, box))
     # # no need to draw for draw==1, which has been better handled by displayWindowclass
     # if draw == 2 and not returnErodeImage:  # always draw interestMask rectangle in WHITE on thresh_img only,
     #     maskContours, hierarchy = cv.findContours(interestMask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -263,9 +271,9 @@ def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dila
     # sort the list by contour's area, so that the larger contours are in the first
     # finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
 
-    # sort the list by contour's center position coordinations(x,y), so that the larger center (x,y) contours
-    # are put in the first
-    finalContours = sorted(finalContours, key=lambda x: x[1][0]+x[1][1], reverse=True)
+    # sort the list by contour's center position coordinations(x,y), so that the lower center (x,y) contours
+    # are put in the first, this is coarse, only use y coordination.
+    finalContours = sorted(finalContours, key=lambda x: x[1][1], reverse=True)
     if returnErodeImage:
         return imgErode, finalContours, img
     else:
