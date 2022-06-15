@@ -132,8 +132,11 @@ if __name__ == '__main__':
             print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
         print('\n')
     else:
-        originalFileName = "/home/lijin/Pictures/tube/sample1.jpg" ## "/media/newdiskp1/picMatch/trainingImages/21/pos-0.png"
+        originalFileName = "sample1.jpg"
         img = cv2.imread(originalFileName)
+        if img is None:
+            logger.error("test image file name {} does not exist,please check and retry".format(originalFileName))
+            exit(-1)
 
     windowName = 'looking for main Contour image'
     cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
@@ -176,7 +179,7 @@ if __name__ == '__main__':
     switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: waterlevel detection\n 4: canny\n ' \
              '5:line detection after canny\n'
     cv2.createTrackbar(switch, windowName, 0, 5, func)
-    cv2.setTrackbarPos(switch, windowName, 5)
+    cv2.setTrackbarPos(switch, windowName, 3)
     cv2.setTrackbarPos(tbThresh, windowName, 82)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
     # cv2.setTrackbarPos(tbKernelSize, windowName, 29)
