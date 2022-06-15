@@ -165,6 +165,105 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
     return img, finalContours
 
 
+# find contours that  are closed graph with minArea,cornerNumber,
+# used to look for the upper water level inside test tube
+# this function plays extremely  important role.!!! be careful of input parameters
+def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
+                        minArea=40, maxArea = 500000,cornerNumber=4,
+                        draw=1):
+    """
+
+    :param img: original image
+    :param blurr_level: kernel size for GaussianBlur
+    :param threshold_level: user-defined threshold level 0-255
+    :param kernel:   erode and dilate kernel, the larger the value, the more effect to remove noise
+    :param minArea:  contour has larger area than this minimum area
+    :param maxArea:  contour has smaller area than this maximum area
+    :param cornerNumber:  contour has corners number that are larger than this
+    :param draw:  draw a rectangle and a circle around detected contour  in what color [1,2]
+    :return: thresh  img , list of satisfactory contours_related info
+            (integer of its boundingbox, center, radius, approx, perimeter ), updated original image
+    """
+    # step 1, convert original image to gray,
+    # blur it and threshold it with user-defined blur_level and thresh_level
+
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), sigmaX=1, sigmaY=1)
+    ret, thresh_img = cv.threshold(blur, threshold_level, 255, cv.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+
+    # step 2:
+    # apply close operation to thresh_img
+    # 先膨胀再腐蚀。被用来填充前景物体中的小洞，或者前景物体上面的小黑点。使得前景变成更加连续的实体
+    # IMPORTANT:
+    # this operation can improve consistency of recognition algorithm,
+    # because 1. it helps to connect closely-adjacent shapes to one shape, so it reduces contours number
+    # 2, in later steps of  _compare, area calculation workload is reduced
+    # the larger the kernel size, adjacent shapes will be more likely to form into one shape
+    closed = cv.morphologyEx(thresh_img, cv.MORPH_CLOSE, kernel)
+
+    # step 3: find the upper rectangle that contains black contents inside the test tube, its upper boundary will
+    # be water level
+    contours, hierarchy = cv.findContours(closed, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    if hierarchy is not None:
+        # print('hierarchy shape is {}'.format(hierarchy.shape))
+        pass
+    finalContours = []
+    for c in contours:
+        area = cv.contourArea(c)
+        peri = cv.arcLength(c, True)
+        approx = cv.approxPolyDP(c, 0.01*peri, True)
+
+
+        if area <= maxArea and area >= minArea and len(approx) >= cornerNumber:
+            #find approx bounding box coordinates, and draw it in Green
+            # x,y,w,h = cv.boundingRect(c)
+            #find minimum area of the contour
+            rect = cv.minAreaRect(approx)
+            # (x,y),(w,h) ,angle = rect    x,y is the center, w is width, h is height of the round rectangle
+            # calculate coordinates of the minimum area rectangle
+            box = cv.boxPoints(rect)
+
+            # normalize coordinates to integers
+            box = np.int0(box)
+
+
+            #  calculate center and radius of minimum enclosing circle,
+            # redundent code for this application, no use so far.
+            (x, y), r = cv.minEnclosingCircle(c)
+            # cast to integers
+            center = (int(x), int(y))
+            radius = int(r)
+
+            if draw:
+                cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
+                cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
+                # reorder approximate points array in the  order of
+                # 1(upperleft),2(upperright),3(bottomleft),4(bottomright)
+                box = reorder(box)
+                # box[0], box[1], box[2], box[3] are (x,y) coordination of
+                # upperleft,upperright,bottomleft, bottomright points
+                print('water level coordinates = ({},{})---({},{})'.format(box[0][0], box[0][1], box[1][0],box[1][1]))
+                cv.putText(img,"({},{})".format(box[0][0], box[0][1]),(box[0][0], box[0][1]),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)  # show its upper-left coordination
+                cv.putText(img,"({},{})".format(box[1][0], box[1][1]),(box[1][0], box[1][1]),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)  # show its upper-right coordination
+
+                cv.drawContours(closed, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
+                cv.circle(closed, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
+            finalContours.append((box, center, radius, approx, int(peri)))
+
+    # sort the list by contour's perimeter, so that the larger contours are put at the first
+    # finalContours = sorted(finalContours, key=lambda x: x[0], reverse=True)
+
+    # sort the list by contour's center position coordinations(x,y), so that the lower center (x,y) contours
+    # are put in the first, which most likely contains the upper water level block, so we only use y coordination.
+    finalContours = sorted(finalContours, key=lambda x: x[1][1], reverse=False)
+    return closed, finalContours, img
+
+
+
+
 # find contours that  are closed graph with minArea,cornerNumber
 # this function plays extremely  important role.!!! be careful of input parameters
 def getRequiredContours(img, blurr_level, threshold_1,threshold_2,erodeIter,dilateIter,kernel,interestMask,
