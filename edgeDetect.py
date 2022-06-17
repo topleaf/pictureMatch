@@ -168,7 +168,7 @@ def getRequiredContoursByHarrisCorner(img, blurr_level, threshold_1,threshold_2,
 # find contours that  are closed graph with minArea,cornerNumber,
 # used to look for the upper water level inside test tube
 # this function plays extremely  important role.!!! be careful of input parameters
-def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
+def getRequiredContoursByThreshold(img, blurr_level, threshold_level, threshold_type, kernel,
                         minArea=40, maxArea = 500000,cornerNumber=4,
                         draw=1):
     """
@@ -176,6 +176,7 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
     :param img: original image
     :param blurr_level: kernel size for GaussianBlur
     :param threshold_level: user-defined threshold level 0-255
+    :param threshold_type: either cv.THRESH_BINARY_INV, cv.THRESH_BINARY or cv2.THRESH_TOZERO
     :param kernel:   erode and dilate kernel, the larger the value, the more effect to remove noise
     :param minArea:  contour has larger area than this minimum area
     :param maxArea:  contour has smaller area than this maximum area
@@ -189,7 +190,7 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
 
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     blur = cv.GaussianBlur(gray, (blurr_level, blurr_level), sigmaX=1, sigmaY=1)
-    ret, thresh_img = cv.threshold(blur, threshold_level, 255, cv.THRESH_BINARY_INV)  #cv2.THRESH_TOZERO) #
+    ret, thresh_img = cv.threshold(blur, threshold_level, 255, threshold_type)  #cv2.THRESH_TOZERO) #
 
     # step 2:
     # apply close operation to thresh_img
@@ -237,7 +238,7 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
 
             if draw:
                 cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
-                cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
+                #cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
                 # reorder approximate points array in the  order of
                 # 1(upperleft),2(upperright),3(bottomleft),4(bottomright)
                 box = reorder(box)
@@ -250,6 +251,11 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, kernel,
                            cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)  # show its upper-right coordination
 
                 cv.drawContours(closed, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
+                cv.putText(closed,"({},{})".format(box[0][0], box[0][1]),(box[0][0], box[0][1]),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)  # show its upper-left coordination
+                cv.putText(closed,"({},{})".format(box[1][0], box[1][1]),(box[1][0], box[1][1]),
+                           cv.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)  # show its upper-right coordination
+
                 cv.circle(closed, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
             finalContours.append((box, center, radius, approx, int(peri)))
 

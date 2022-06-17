@@ -172,13 +172,18 @@ if __name__ == '__main__':
     tbMaxArea = 'maxArea'
     cv2.createTrackbar(tbMinArea, windowName, 20000, 50000, func)
     cv2.createTrackbar(tbMaxArea, windowName, 349500, 350000, func)
+
+    tbMinMarkArea = 'minAreaMark'       # mark line minimum area
+    tbMaxMarkArea = 'maxAreaMark'       # mark line maximum area
+    cv2.createTrackbar(tbMinMarkArea, windowName, 20, 10000, func)
+    cv2.createTrackbar(tbMaxMarkArea, windowName, 300, 50000, func)
     cv2.createTrackbar(tbMinLineLength, windowName , 5, 255, func)
     cv2.createTrackbar(tbMaxLineGap, windowName , 20, 255, func)
 
 
     switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: waterlevel detection\n 4: canny\n ' \
-             '5:line detection after canny\n'
-    cv2.createTrackbar(switch, windowName, 0, 5, func)
+             '5:line detection after canny\n 6: contour detection'
+    cv2.createTrackbar(switch, windowName, 0, 6, func)
     cv2.setTrackbarPos(switch, windowName, 3)
     cv2.setTrackbarPos(tbThresh, windowName, 82)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
@@ -211,6 +216,8 @@ if __name__ == '__main__':
         maxLineGap = cv2.getTrackbarPos(tbMaxLineGap,windowName)
         minArea = cv2.getTrackbarPos(tbMinArea, windowName)
         maxArea = cv2.getTrackbarPos(tbMaxArea, windowName)
+        minMarkArea = cv2.getTrackbarPos(tbMinMarkArea, windowName)
+        maxMarkArea = cv2.getTrackbarPos(tbMaxMarkArea, windowName)
         s = cv2.getTrackbarPos(switch, windowName)
 
 
@@ -243,6 +250,7 @@ if __name__ == '__main__':
         elif s == 3:   # show original image with water level detection rectangle shown if there is any
             contours_img = img.copy()
             threshedImg, conts, contours_img = getRequiredContoursByThreshold(contours_img, blurr_level, thresh_level,
+                                                    cv2.THRESH_BINARY_INV,
                                                     kernel,
                                                     minArea=minArea, maxArea=maxArea,
                                                     cornerNumber=4, draw=drawRect)
@@ -251,6 +259,7 @@ if __name__ == '__main__':
             #  step 1: find out the rectangle of black contents in the test tube
             contours_img = img.copy()
             threshedImg, conts, contours_img = getRequiredContoursByThreshold(contours_img, blurr_level, thresh_level,
+                                                                              cv2.THRESH_BINARY_INV,
                                                                               kernel,
                                                                               minArea=minArea, maxArea=maxArea,
                                                                               cornerNumber=4, draw=drawRect)
@@ -281,10 +290,13 @@ if __name__ == '__main__':
             # displayWindow(windowName,imgErode,0,0,screenResolution, True)
 
 
-        elif s == 5:  # to detect the first and second horizontal lines from top to bottom, get their y coordinations
+        elif s == 5:
+            # to detect the first and second horizontal lines from top to bottom, get their y coordinations
+            # using line detection API
             #  step 1: find out the rectangle of black contents in the test tube
             contours_img = img.copy()
             threshedImg, conts, contours_img = getRequiredContoursByThreshold(contours_img, blurr_level, thresh_level,
+                                                                              cv2.THRESH_BINARY_INV,
                                                                               kernel,
                                                                               minArea=minArea, maxArea=maxArea,
                                                                               cornerNumber=4, draw=drawRect)
@@ -300,16 +312,50 @@ if __name__ == '__main__':
                 imgContentWarpBlur = warpImg(blurFrame, box, wP, hP)
                 imgContentWarp = warpImg(img, box, wP, hP)
                 # step 3: canny it before applying line detection
-                edges = cv2.Canny(imgContentWarpBlur,cannyLow,cannyHigh)
+                edges = cv2.Canny(imgContentWarpBlur, cannyLow, cannyHigh)
 
-                # step 4: draw detected lines on the original image
+                # step 4: draw detected lines on the original image in GREEN, Only straight lines are detected
                 lines = cv2.HoughLinesP(edges, 1, np.pi/180, 100, minLineLength, maxLineGap)
-                for x1, y1, x2, y2 in lines[0]:
-                    cv2.line(imgContentWarp, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                if lines is not None:
+                    for x1, y1, x2, y2 in lines[0]:
+                        cv2.line(imgContentWarp, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                else:
+                    logger.info('no line detected.please tune cannyLow/High,minLineLength/maxLineGap ')
 
-                # # ret, imgContentWarpThresh = cv2.threshold(imgContentWarpBlur, thresh_level, 255, cv2.THRESH_BINARY, None)
-                #
                 displayWindow(windowName, imgContentWarp, 0, 0, screenResolution, True)
+        elif s == 6:
+            # to detect the first and second horizontal lines from top to bottom, get their y coordinations
+            # using findContour API
+
+            #  step 1: find out the rectangle of black contents in the test tube
+            contours_img = img.copy()
+            threshedImg, conts, contours_img = getRequiredContoursByThreshold(contours_img, blurr_level, thresh_level,
+                                                                              cv2.THRESH_BINARY_INV,
+                                                                              kernel,
+                                                                              minArea=minArea, maxArea=maxArea,
+                                                                              cornerNumber=4, draw=drawRect)
+            if len(conts) == 0:
+                logger.info("no bounding box found, show original image instead")
+                displayWindow(windowName, contours_img, 0, 0, screenResolution, True)
+            else:
+                # the first boundingbox marks the black contents inside the test tube
+                box = conts[0][0]
+                blurFrame = cv2.GaussianBlur(gray, (blurr_level, blurr_level), 0)
+                #  step 2: projecting the whole black contents to a new coordination system [wP,hP]
+                # where the water level's new y coordination is 0
+                imgContentWarpBlur = warpImg(blurFrame, box, wP, hP)
+                imgContentWarp = warpImg(img, box, wP, hP)
+                # step 3: find the first block horizontally which might be the closest mark on test tube under water level.
+                # here, threshold_type argument MUST be set to cv2.THRESH_BINARY, so that the white marks on test tube
+                # are shown in WHITE for cv.findContours API to identify them as contours.
+                threshedImg, conts, contours_img = getRequiredContoursByThreshold(imgContentWarp.copy(), blurr_level, thresh_level,
+                                                                                  cv2.THRESH_BINARY,
+                                                                                  kernel,
+                                                                                  minArea=minMarkArea, maxArea=maxMarkArea,
+                                                                                  cornerNumber=4, draw=drawRect)
+
+
+                displayWindow(windowName, contours_img, 0, 0, screenResolution, True)
 
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
