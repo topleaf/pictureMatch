@@ -237,7 +237,7 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, threshold_
             radius = int(r)
 
             if draw:
-                cv.drawContours(img, [box], 0, (0, 0, 255), 2) #draw the contour's minAreaRect box in RED
+                cv.drawContours(img, [box], 0, (0, 0, 255), 20) #draw the contour's minAreaRect box in RED
                 #cv.circle(img, center, radius, (255, 0, 0), 2) #  draw minEnclosingCircle in blue
                 # reorder approximate points array in the  order of
                 # 1(upperleft),2(upperright),3(bottomleft),4(bottomright)
@@ -246,17 +246,17 @@ def getRequiredContoursByThreshold(img, blurr_level, threshold_level, threshold_
                 # upperleft,upperright,bottomleft, bottomright points
                 print('water level coordinates = ({},{})---({},{})'.format(box[0][0], box[0][1], box[1][0],box[1][1]))
                 cv.putText(img,"({},{})".format(box[0][0], box[0][1]),(box[0][0], box[0][1]),
-                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)  # show its upper-left coordination
+                           cv.FONT_HERSHEY_COMPLEX, 3, (0, 255, 0), 2)  # show its upper-left coordination
                 cv.putText(img,"({},{})".format(box[1][0], box[1][1]),(box[1][0], box[1][1]),
-                           cv.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)  # show its upper-right coordination
+                           cv.FONT_HERSHEY_COMPLEX, 3, (0, 255, 0), 2)  # show its upper-right coordination
 
-                cv.drawContours(closed, [box], 0, (255, 255, 255), 2) #draw the contour's minAreaRect box in white
+                cv.drawContours(closed, [box], 0, (255, 255, 255), 20) #draw the contour's minAreaRect box in white
                 cv.putText(closed,"({},{})".format(box[0][0], box[0][1]),(box[0][0], box[0][1]),
-                           cv.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)  # show its upper-left coordination
+                           cv.FONT_HERSHEY_COMPLEX, 3, (255, 255, 255), 2)  # show its upper-left coordination
                 cv.putText(closed,"({},{})".format(box[1][0], box[1][1]),(box[1][0], box[1][1]),
-                           cv.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 3)  # show its upper-right coordination
+                           cv.FONT_HERSHEY_COMPLEX, 3, (255, 255, 255), 2)  # show its upper-right coordination
 
-                cv.circle(closed, center, radius, (255, 255, 255), 2) #  draw minEnclosingCircle in white
+                cv.circle(closed, center, radius, (255, 255, 255), 20) #  draw minEnclosingCircle in white
             finalContours.append((box, center, radius, approx, int(peri)))
 
     # sort the list by contour's perimeter, so that the larger contours are put at the first

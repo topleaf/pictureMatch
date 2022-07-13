@@ -60,16 +60,18 @@ def displayWindow(windowName,frame, x, y, screenResolution,resize=False):
     :param resize: if resize to window to fit into display screen ratio, window takes 1/4 screen
     :return: width,height after resizing
     """
-    cv2.moveWindow(windowName, x, y)
+    #cv2.moveWindow(windowName, x, y)
     width = int(frame.shape[1])
     height = int(frame.shape[0])
     if resize:
-        scaleX = screenResolution[0]/frame.shape[1]/1.2
-        scaleY = screenResolution[1]/frame.shape[0]/1.2
-        scale = min(scaleX, scaleY)
-        width = int(frame.shape[1]*scale)
-        height = int(frame.shape[0]*scale)
-        cv2.resizeWindow(windowName, width, height)
+        scaleX = screenResolution[0]/frame.shape[1]/1.0
+        scaleY = screenResolution[1]/frame.shape[0]/1.0
+        scaleMin = min(scaleX, scaleY)
+        width = int(frame.shape[1]*scaleMin)
+        height = int(frame.shape[0]*scaleMin)
+    #    cv2.resizeWindow(windowName, width, height)
+        frame = cv2.resize(frame,(width,height))
+        logger.info("new width={},height={}".format(width,height))
 
     cv2.imshow(windowName, frame)
     return width, height
@@ -132,7 +134,7 @@ if __name__ == '__main__':
             print("{}={} ".format(cameraPropertyNames[key], camera.get(key)), end=' ')
         print('\n')
     else:
-        originalFileName = "sample1.jpg"
+        originalFileName = "sample2_croped.jpg"
         img = cv2.imread(originalFileName)
         if img is None:
             logger.error("test image file name {} does not exist,please check and retry".format(originalFileName))
@@ -156,9 +158,10 @@ if __name__ == '__main__':
     tbMaxLineGap = 'maxLineGap'
 
 
-    cv2.createTrackbar(tbThresh, windowName, 0, 255, func)
-    cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
-    cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
+    cv2.createTrackbar(tbThresh, windowName, 55, 255, func)
+#    cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
+
+ #   cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
     cv2.createTrackbar(tbCannyLow, windowName, 0, 255, func)
     cv2.createTrackbar(tbCannyHigh, windowName, 0, 255, func)
     tbBlurlevel = 'blur level'
@@ -170,8 +173,8 @@ if __name__ == '__main__':
 
     tbMinArea = 'minArea'
     tbMaxArea = 'maxArea'
-    cv2.createTrackbar(tbMinArea, windowName, 20000, 50000, func)
-    cv2.createTrackbar(tbMaxArea, windowName, 349500, 350000, func)
+    cv2.createTrackbar(tbMinArea, windowName, 475000, 500000, func)
+    cv2.createTrackbar(tbMaxArea, windowName, 3495000, 5500000, func)
 
     tbMinMarkArea = 'minAreaMark'       # mark line minimum area
     tbMaxMarkArea = 'maxAreaMark'       # mark line maximum area
@@ -181,19 +184,21 @@ if __name__ == '__main__':
     cv2.createTrackbar(tbMaxLineGap, windowName , 20, 255, func)
 
 
-    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: waterlevel detection\n 4: canny\n ' \
-             '5:line detection after canny\n 6: contour detection'
+#    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: waterlevel detection\n 4: canny\n ' \
+ #            '5:line detection after canny\n 6: contour detection'
+    switch = '0 :o 1 :blur 2 : Thresh 3: waterlevel 4: canny ' \
+             '5:line dt 6:contour dt'
     cv2.createTrackbar(switch, windowName, 0, 6, func)
-    cv2.setTrackbarPos(switch, windowName, 3)
-    cv2.setTrackbarPos(tbThresh, windowName, 82)
+    cv2.setTrackbarPos(switch, windowName, 6)
+    cv2.setTrackbarPos(tbThresh, windowName, 54)
     cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    # cv2.setTrackbarPos(tbKernelSize, windowName, 29)
-    # cv2.setTrackbarPos(tbMinArea, windowName, 50)
-    # cv2.setTrackbarPos(tbMaxArea, windowName, 116230)
-    cv2.setTrackbarPos(tbErodeIter, windowName, 1)
-    cv2.setTrackbarPos(tbDilateIter, windowName, 1)
-    cv2.setTrackbarPos(tbCannyLow, windowName, 10)
-    cv2.setTrackbarPos(tbCannyHigh, windowName, 50)
+    cv2.setTrackbarPos(tbKernelSize, windowName, 29)
+    cv2.setTrackbarPos(tbMinArea, windowName, 182077)
+    cv2.setTrackbarPos(tbMaxArea, windowName, 4032800)
+    #cv2.setTrackbarPos(tbErodeIter, windowName, 1)
+    #cv2.setTrackbarPos(tbDilateIter, windowName, 1)
+    cv2.setTrackbarPos(tbCannyLow, windowName, 220)
+    cv2.setTrackbarPos(tbCannyHigh, windowName, 254)
 
     while(1):
         if webCam:
@@ -206,8 +211,8 @@ if __name__ == '__main__':
         thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
         cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
         cannyHigh = cv2.getTrackbarPos(tbCannyHigh, windowName)
-        erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
-        dilateIter = cv2.getTrackbarPos(tbDilateIter, windowName)
+     #   erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
+     #   dilateIter = cv2.getTrackbarPos(tbDilateIter, windowName)
         blurr_level = cv2.getTrackbarPos(tbBlurlevel, windowName)
         blurr_level = (lambda x: x+1 if x % 2 == 0 else x)(blurr_level)    # avoid even value
 
