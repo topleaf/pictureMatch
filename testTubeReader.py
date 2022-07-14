@@ -50,6 +50,22 @@ def _getCurrentScreenRes():
     resolution = out.decode('utf-8')
     return int(resolution.split('x')[0]), int(resolution.split('x')[1].split(' ')[0])
 
+
+def resizeWithAspectRatio(image, width=None, height=None, inter=cv2.INTER_AREA):
+    dim = None
+    (h, w) = image.shape[:2]
+
+    if width is None and height is None:
+        return image
+    if width is None:
+        r = height / float(h)
+        dim = (int(w * r), height)
+    else:
+        r = width / float(w)
+        dim = (width, int(h * r))
+
+    return cv2.resize(image, dim, interpolation=inter)
+
 def displayWindow(windowName,frame, x, y, screenResolution,resize=False):
     """
     :param windowName:
@@ -60,21 +76,50 @@ def displayWindow(windowName,frame, x, y, screenResolution,resize=False):
     :param resize: if resize to window to fit into display screen ratio, window takes 1/4 screen
     :return: width,height after resizing
     """
-    #cv2.moveWindow(windowName, x, y)
+    # cv2.moveWindow(windowName, x, y)
     width = int(frame.shape[1])
     height = int(frame.shape[0])
     if resize:
         scaleX = screenResolution[0]/frame.shape[1]/1.0
         scaleY = screenResolution[1]/frame.shape[0]/1.0
-        scaleMin = min(scaleX, scaleY)
-        width = int(frame.shape[1]*scaleMin)
-        height = int(frame.shape[0]*scaleMin)
-    #    cv2.resizeWindow(windowName, width, height)
-        frame = cv2.resize(frame,(width,height))
-        logger.info("new width={},height={}".format(width,height))
+        scale = min(scaleX, scaleY)
+        if scale == scaleY:    # y direction ratio is smaller than x direction ratio
+            frame = resizeWithAspectRatio(frame, width=None, height=screenResolution[1], inter=cv2.INTER_AREA)
+        else:
+            frame = resizeWithAspectRatio(frame, width=screenResolution[0], height=None,inter=cv2.INTER_AREA)
 
+    # automatically resizeWindow to hold current frame inside window completely, this is optional
+    cv2.resizeWindow(windowName, frame.shape[1], frame.shape[0])
     cv2.imshow(windowName, frame)
+
     return width, height
+
+#
+# def displayWindow(windowName,frame, x, y, screenResolution,resize=False):
+#     """
+#     :param windowName:
+#     :param frame:
+#     :param x: The new x-coordinate of the window.
+#     :param y: The new y-coordinate of the window.
+#     :param screenResolution:
+#     :param resize: if resize to window to fit into display screen ratio, window takes 1/4 screen
+#     :return: width,height after resizing
+#     """
+#     #cv2.moveWindow(windowName, x, y)
+#     width = int(frame.shape[1])
+#     height = int(frame.shape[0])
+#     if resize:
+#         scaleX = screenResolution[0]/frame.shape[1]/1.0
+#         scaleY = screenResolution[1]/frame.shape[0]/1.0
+#         scaleMin = min(scaleX, scaleY)
+#         width = int(frame.shape[1]*scaleMin)
+#         height = int(frame.shape[0]*scaleMin)
+#     #    cv2.resizeWindow(windowName, width, height)
+#         frame = cv2.resize(frame,(width,height))
+#         logger.info("new width={},height={}".format(width,height))
+#
+#     cv2.imshow(windowName, frame)
+#     return width, height
 
 cameraPropertyNames={
     cv2.CAP_PROP_FRAME_WIDTH:'width',
@@ -102,8 +147,8 @@ if __name__ == '__main__':
     logger.setLevel(logging.DEBUG)
     logger.addHandler(logHandler)
 
-    screenResolution = ()
-    screenResolution =_getCurrentScreenRes()
+    screenResolution = (1280, 1024)  # my win7 PC's screenresolution
+    # screenResolution =_getCurrentScreenRes()
     _onDisplayId = 1
 
 
@@ -142,6 +187,8 @@ if __name__ == '__main__':
 
     windowName = 'looking for main Contour image'
     cv2.namedWindow(windowName, cv2.WINDOW_NORMAL)
+    trackbarWindowName = 'trackbars'
+    cv2.namedWindow(trackbarWindowName, cv2.WINDOW_NORMAL)
 
     drawRect = True
 
@@ -158,47 +205,47 @@ if __name__ == '__main__':
     tbMaxLineGap = 'maxLineGap'
 
 
-    cv2.createTrackbar(tbThresh, windowName, 55, 255, func)
-#    cv2.createTrackbar(tbErodeIter, windowName, 0, 5, func)
+    cv2.createTrackbar(tbThresh, trackbarWindowName, 55, 255, func)
+#    cv2.createTrackbar(tbErodeIter, trackbarWindowName, 0, 5, func)
 
- #   cv2.createTrackbar(tbDilateIter, windowName, 0, 5, func)
-    cv2.createTrackbar(tbCannyLow, windowName, 0, 255, func)
-    cv2.createTrackbar(tbCannyHigh, windowName, 0, 255, func)
+ #   cv2.createTrackbar(tbDilateIter, trackbarWindowName, 0, 5, func)
+    cv2.createTrackbar(tbCannyLow, trackbarWindowName, 0, 255, func)
+    cv2.createTrackbar(tbCannyHigh, trackbarWindowName, 0, 255, func)
     tbBlurlevel = 'blur level'
-    cv2.createTrackbar(tbBlurlevel, windowName, 1, 50, func)
+    cv2.createTrackbar(tbBlurlevel, trackbarWindowName, 1, 50, func)
     # kernel size for cv.morphologyEx close operation, the larger the kernel size,
     # adjacent shapes will be more likely to form into one shape to reduce noisy holes
     tbKernelSize = 'kernel size'
-    cv2.createTrackbar(tbKernelSize, windowName, 0, 50, func)
+    cv2.createTrackbar(tbKernelSize, trackbarWindowName, 0, 50, func)
 
     tbMinArea = 'minArea'
     tbMaxArea = 'maxArea'
-    cv2.createTrackbar(tbMinArea, windowName, 475000, 500000, func)
-    cv2.createTrackbar(tbMaxArea, windowName, 3495000, 5500000, func)
+    cv2.createTrackbar(tbMinArea, trackbarWindowName, 475000, 500000, func)
+    cv2.createTrackbar(tbMaxArea, trackbarWindowName, 3495000, 5500000, func)
 
     tbMinMarkArea = 'minAreaMark'       # mark line minimum area
     tbMaxMarkArea = 'maxAreaMark'       # mark line maximum area
-    cv2.createTrackbar(tbMinMarkArea, windowName, 20, 10000, func)
-    cv2.createTrackbar(tbMaxMarkArea, windowName, 300, 50000, func)
-    cv2.createTrackbar(tbMinLineLength, windowName , 5, 255, func)
-    cv2.createTrackbar(tbMaxLineGap, windowName , 20, 255, func)
+    cv2.createTrackbar(tbMinMarkArea, trackbarWindowName, 20, 10000, func)
+    cv2.createTrackbar(tbMaxMarkArea, trackbarWindowName, 300, 50000, func)
+    cv2.createTrackbar(tbMinLineLength, trackbarWindowName , 5, 255, func)
+    cv2.createTrackbar(tbMaxLineGap, trackbarWindowName , 20, 255, func)
 
 
 #    switch = '0 : Origin\n1 : Gaussianblur\n2 : Thresh\n 3: waterlevel detection\n 4: canny\n ' \
  #            '5:line detection after canny\n 6: contour detection'
     switch = '0 :o 1 :blur 2 : Thresh 3: waterlevel 4: canny ' \
              '5:line dt 6:contour dt'
-    cv2.createTrackbar(switch, windowName, 0, 6, func)
-    cv2.setTrackbarPos(switch, windowName, 6)
-    cv2.setTrackbarPos(tbThresh, windowName, 54)
-    cv2.setTrackbarPos(tbBlurlevel, windowName, 4)
-    cv2.setTrackbarPos(tbKernelSize, windowName, 29)
-    cv2.setTrackbarPos(tbMinArea, windowName, 182077)
-    cv2.setTrackbarPos(tbMaxArea, windowName, 4032800)
-    #cv2.setTrackbarPos(tbErodeIter, windowName, 1)
-    #cv2.setTrackbarPos(tbDilateIter, windowName, 1)
-    cv2.setTrackbarPos(tbCannyLow, windowName, 220)
-    cv2.setTrackbarPos(tbCannyHigh, windowName, 254)
+    cv2.createTrackbar(switch, trackbarWindowName, 0, 6, func)
+    cv2.setTrackbarPos(switch, trackbarWindowName, 6)
+    cv2.setTrackbarPos(tbThresh, trackbarWindowName, 54)
+    cv2.setTrackbarPos(tbBlurlevel, trackbarWindowName, 4)
+    cv2.setTrackbarPos(tbKernelSize, trackbarWindowName, 29)
+    cv2.setTrackbarPos(tbMinArea, trackbarWindowName, 182077)
+    cv2.setTrackbarPos(tbMaxArea, trackbarWindowName, 4032800)
+    #cv2.setTrackbarPos(tbErodeIter, trackbarWindowName, 1)
+    #cv2.setTrackbarPos(tbDilateIter, trackbarWindowName, 1)
+    cv2.setTrackbarPos(tbCannyLow, trackbarWindowName, 220)
+    cv2.setTrackbarPos(tbCannyHigh, trackbarWindowName, 254)
 
     while(1):
         if webCam:
@@ -206,24 +253,24 @@ if __name__ == '__main__':
             if not success:
                 break
 
-        kernelSize = cv2.getTrackbarPos(tbKernelSize,windowName)
+        kernelSize = cv2.getTrackbarPos(tbKernelSize, trackbarWindowName)
         kernel = np.ones((kernelSize, kernelSize))
-        thresh_level = cv2.getTrackbarPos(tbThresh, windowName)
-        cannyLow = cv2.getTrackbarPos(tbCannyLow, windowName)
-        cannyHigh = cv2.getTrackbarPos(tbCannyHigh, windowName)
-     #   erodeIter = cv2.getTrackbarPos(tbErodeIter, windowName)
-     #   dilateIter = cv2.getTrackbarPos(tbDilateIter, windowName)
-        blurr_level = cv2.getTrackbarPos(tbBlurlevel, windowName)
+        thresh_level = cv2.getTrackbarPos(tbThresh, trackbarWindowName)
+        cannyLow = cv2.getTrackbarPos(tbCannyLow, trackbarWindowName)
+        cannyHigh = cv2.getTrackbarPos(tbCannyHigh, trackbarWindowName)
+     #   erodeIter = cv2.getTrackbarPos(tbErodeIter, trackbarWindowName)
+     #   dilateIter = cv2.getTrackbarPos(tbDilateIter, trackbarWindowName)
+        blurr_level = cv2.getTrackbarPos(tbBlurlevel, trackbarWindowName)
         blurr_level = (lambda x: x+1 if x % 2 == 0 else x)(blurr_level)    # avoid even value
 
 
-        minLineLength = cv2.getTrackbarPos(tbMinLineLength,windowName)
-        maxLineGap = cv2.getTrackbarPos(tbMaxLineGap,windowName)
-        minArea = cv2.getTrackbarPos(tbMinArea, windowName)
-        maxArea = cv2.getTrackbarPos(tbMaxArea, windowName)
-        minMarkArea = cv2.getTrackbarPos(tbMinMarkArea, windowName)
-        maxMarkArea = cv2.getTrackbarPos(tbMaxMarkArea, windowName)
-        s = cv2.getTrackbarPos(switch, windowName)
+        minLineLength = cv2.getTrackbarPos(tbMinLineLength,trackbarWindowName)
+        maxLineGap = cv2.getTrackbarPos(tbMaxLineGap,trackbarWindowName)
+        minArea = cv2.getTrackbarPos(tbMinArea, trackbarWindowName)
+        maxArea = cv2.getTrackbarPos(tbMaxArea, trackbarWindowName)
+        minMarkArea = cv2.getTrackbarPos(tbMinMarkArea, trackbarWindowName)
+        maxMarkArea = cv2.getTrackbarPos(tbMaxMarkArea, trackbarWindowName)
+        s = cv2.getTrackbarPos(switch, trackbarWindowName)
 
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -328,6 +375,7 @@ if __name__ == '__main__':
                     logger.info('no line detected.please tune cannyLow/High,minLineLength/maxLineGap ')
 
                 displayWindow(windowName, imgContentWarp, 0, 0, screenResolution, True)
+                # displayWindow(windowName, edges, 0, 0, screenResolution, True)
         elif s == 6:
             # to detect the first and second horizontal lines from top to bottom, get their y coordinations
             # using findContour API

@@ -35,7 +35,7 @@ warp interested Region image, detect and compute on warpedImage, use key 'r' to 
 set videoCapture property buffersize from default 4 to 1
 """
 
-from managers import WindowManager,CaptureManager,CommunicationManager, STATES_NUM,SKIP_STATE_ID
+# from managers import WindowManager,CaptureManager,CommunicationManager, STATES_NUM,SKIP_STATE_ID
 from edgeDetect import extractValidROI, warpImg
 import logging
 import argparse
